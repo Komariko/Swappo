@@ -21,7 +21,7 @@ import {
   doc,
 } from "firebase/firestore";
 
-/* เอา app จาก SDK ตรง ๆ เพื่อไม่ต้อง export app ใน config */
+/* ใช้ app จาก SDK */
 import { getApp, getApps } from "firebase/app";
 
 export default function Header() {
@@ -33,11 +33,23 @@ export default function Header() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // สถานะการรองรับ/permission ของ Notifications
+  const [notifSupported, setNotifSupported] = useState(false);
+  const [notifPermission, setNotifPermission] = useState("default"); // 'default' | 'granted' | 'denied'
+
   const router = useRouter();
   const clickScopeRef = useRef(null);
   const notifUnsubRef = useRef(null);
 
-  // auth + subscribe notifications
+  // ===== Detect Notification support (client only) =====
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotifSupported(true);
+      setNotifPermission(Notification.permission);
+    }
+  }, []);
+
+  // ===== auth + subscribe notifications (ไม่ขอ permission อัตโนมัติแล้ว) =====
   useEffect(() => {
     authStateHandler(async (u) => {
       setUser(u);
@@ -59,8 +71,6 @@ export default function Header() {
           setUnreadCount(docs.filter((n) => !n.read).length);
         });
         notifUnsubRef.current = unsub;
-
-        requestAndSaveFcmToken(u.uid);
       } else {
         setNotifications([]);
         setUnreadCount(0);
@@ -92,10 +102,10 @@ export default function Header() {
         setMobileOpen(false);
       }
     }
-    document.addEventListener("click", onDoc);
+    document.addEventListener("click", onDoc, true);
     document.addEventListener("keydown", onEsc);
     return () => {
-      document.removeEventListener("click", onDoc);
+      document.removeEventListener("click", onDoc, true);
       document.removeEventListener("keydown", onEsc);
     };
   }, []);
@@ -137,7 +147,7 @@ export default function Header() {
     }
   };
 
-  // FCM
+  // ===== ขอสิทธิ + บันทึก FCM token เฉพาะตอนที่ผู้ใช้กด =====
   async function requestAndSaveFcmToken(uid) {
     try {
       if (typeof window === "undefined" || typeof Notification === "undefined") return;
@@ -149,6 +159,7 @@ export default function Header() {
       if (!supported) return;
 
       const permission = await Notification.requestPermission();
+      setNotifPermission(permission);
       if (permission !== "granted") return;
 
       const messaging = getMessaging(app);
@@ -178,6 +189,7 @@ export default function Header() {
               type="button"
               className="md:hidden p-2 rounded-xl hover:bg-slate-100"
               aria-label="เปิดเมนู"
+              aria-expanded={mobileOpen}
               onClick={() => setMobileOpen((s) => !s)}
             >
               {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -192,7 +204,7 @@ export default function Header() {
                   width={132}
                   height={36}
                   priority
-                  className="object-contain"
+                  className="w-[132px] h-[36px] object-contain"
                 />
               </span>
               <span className="hidden dark:block">
@@ -202,7 +214,7 @@ export default function Header() {
                   width={132}
                   height={36}
                   priority
-                  className="object-contain"
+                  className="w-[132px] h-[36px] object-contain"
                 />
               </span>
             </Link>
@@ -249,10 +261,13 @@ export default function Header() {
                 type="button"
                 className="relative p-2 rounded-full hover:bg-slate-100"
                 aria-label="แจ้งเตือน"
+                aria-expanded={notifOpen}
+                aria-controls="notif-popover"
                 onClick={(e) => {
                   e.stopPropagation();
                   setNotifOpen((v) => !v);
                   setProfileOpen(false);
+                  if (notifSupported) setNotifPermission(Notification.permission);
                 }}
               >
                 <Bell className="w-5 h-5 text-slate-600" />
@@ -264,7 +279,11 @@ export default function Header() {
               </button>
 
               {notifOpen && (
-                <div className="absolute right-0 mt-2 w-84 sm:w-96 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden z-50">
+                <div
+                  id="notif-popover"
+                  role="dialog"
+                  className="absolute right-0 mt-2 w-84 sm:w-96 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden z-50"
+                >
                   <div className="px-4 py-2.5 border-b flex items-center justify-between">
                     <div className="font-semibold text-sm">การแจ้งเตือน</div>
                     <button
@@ -278,6 +297,24 @@ export default function Header() {
                       ทำเครื่องหมายว่าอ่านแล้ว
                     </button>
                   </div>
+
+                  {/* แถบเปิดใช้งานการแจ้งเตือน (ขอ permission เมื่อผู้ใช้กด) */}
+                  {user && notifSupported && notifPermission !== "granted" && (
+                    <div className="px-4 py-3 border-b bg-amber-50 text-amber-800 text-xs flex items-center justify-between gap-3">
+                      <div>ต้องเปิดการแจ้งเตือนเพื่อรับข่าวสารแบบเรียลไทม์</div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          requestAndSaveFcmToken(user.uid);
+                        }}
+                        className="px-2 py-1 rounded-full bg-amber-600 text-white hover:bg-amber-700"
+                      >
+                        เปิดการแจ้งเตือน
+                      </button>
+                    </div>
+                  )}
+
                   <div className="max-h-80 overflow-auto">
                     {notifications.length === 0 && (
                       <div className="p-4 text-sm text-slate-500">ยังไม่มีการแจ้งเตือน</div>
@@ -319,6 +356,8 @@ export default function Header() {
               <div className="relative">
                 <button
                   type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={profileOpen}
                   onClick={(e) => {
                     e.stopPropagation();
                     setProfileOpen((s) => !s);
@@ -331,7 +370,7 @@ export default function Header() {
                     alt="avatar"
                     width={36}
                     height={36}
-                    className="rounded-full object-cover pointer-events-none"
+                    className="w-9 h-9 rounded-full object-cover pointer-events-none"
                   />
                   <span className="hidden md:inline-block text-sm font-medium text-slate-700 max-w-[150px] truncate">
                     {user.displayName || "ชื่อผู้ใช้"}
@@ -347,7 +386,7 @@ export default function Header() {
                           alt="avatar"
                           width={44}
                           height={44}
-                          className="rounded-full object-cover pointer-events-none"
+                          className="w-11 h-11 rounded-full object-cover pointer-events-none"
                         />
                         <div>
                           <div className="text-sm font-semibold">{user.displayName || "ผู้ใช้"}</div>

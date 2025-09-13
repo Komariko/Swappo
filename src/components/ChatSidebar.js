@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { auth, db } from '@/firebase/config';
 import {
   addDoc,
@@ -20,13 +20,19 @@ export default function ChatSidebar({ toUserId, isOpen, onClose }) {
   const [targetUser, setTargetUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
-  const listRef = useRef(null);
 
+  const listRef = useRef(null);
+  const panelRef = useRef(null);
+  const inputRef = useRef(null);
+  const lastFocusedBeforeOpenRef = useRef(null);
+
+  // ===== Auth state =====
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => setCurrentUser(u || null));
     return () => unsub();
   }, []);
 
+  // ===== Load target user =====
   useEffect(() => {
     if (!toUserId) return;
     const uref = doc(db, 'users', toUserId);
@@ -39,6 +45,7 @@ export default function ChatSidebar({ toUserId, isOpen, onClose }) {
     });
   }, [toUserId]);
 
+  // ===== Subscribe messages =====
   useEffect(() => {
     if (!currentUser || !toUserId) return;
 
@@ -58,6 +65,63 @@ export default function ChatSidebar({ toUserId, isOpen, onClose }) {
 
     return () => unsub();
   }, [currentUser, toUserId]);
+
+  // ===== A11y: manage focus & inert =====
+  useEffect(() => {
+    if (isOpen) {
+      // จดจำ element ที่โฟกัสอยู่ก่อนเปิด แล้วโฟกัสช่องพิมพ์
+      lastFocusedBeforeOpenRef.current = document.activeElement;
+      const id = requestAnimationFrame(() => inputRef.current?.focus());
+      return () => cancelAnimationFrame(id);
+    } else {
+      // ถ้าปิด: เอาโฟกัสออกจาก element ข้างใน panel และคืนโฟกัสให้ element ก่อนหน้า
+      const active = document.activeElement;
+      if (active && panelRef.current?.contains(active)) active.blur();
+      lastFocusedBeforeOpenRef.current?.focus?.();
+    }
+  }, [isOpen]);
+
+  // ปิดด้วย ESC + focus trap
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (!isOpen) return;
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        safeClose();
+      }
+      if (e.key === 'Tab') {
+        const focusables = panelRef.current?.querySelectorAll(
+          'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])'
+        );
+        if (!focusables || focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    },
+    [isOpen]
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e) => handleKeyDown(e);
+    document.addEventListener('keydown', handler, true);
+    return () => document.removeEventListener('keydown', handler, true);
+  }, [isOpen, handleKeyDown]);
+
+  // ปิดแบบปลอดภัย
+  const safeClose = () => {
+    const active = document.activeElement;
+    if (active && panelRef.current?.contains(active)) active.blur();
+    onClose?.();
+  };
 
   async function handleSend() {
     const msg = text.trim();
@@ -99,17 +163,23 @@ export default function ChatSidebar({ toUserId, isOpen, onClose }) {
     );
 
     setText('');
+    inputRef.current?.focus();
   }
 
   return (
     <aside
-      className={`fixed top-0 right-0 w-[320px] max-w-[90%] h-full bg-white border-l shadow-lg z-50 transform transition-transform duration-300 ease-in-out flex flex-col ${
-        isOpen ? 'translate-x-0' : 'translate-x-full'
-      }`}
+      ref={panelRef}
+      role="dialog"
+      aria-label="แชทส่วนตัว"
       aria-hidden={!isOpen}
+      /* ✅ ใช้ boolean attribute ตรง ๆ */
+      inert={!isOpen}
+      className={`fixed top-0 right-0 w-[320px] max-w-[90%] h-full bg-white border-l shadow-lg z-50
+        transform transition-transform duration-300 ease-in-out flex flex-col
+        ${isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'}`}
     >
       <div className="bg-gradient-to-r from-[#ff6f61] to-[#ff886f] text-white p-4 font-bold flex justify-between items-center">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <img
             src={targetUser?.profilePic || '/images/profile-placeholder.jpg'}
             alt="profile"
@@ -119,7 +189,7 @@ export default function ChatSidebar({ toUserId, isOpen, onClose }) {
             {targetUser?.username || '...'}
           </span>
         </div>
-        <button onClick={onClose} aria-label="ปิดแชท">
+        <button onClick={safeClose} aria-label="ปิดแชท" className="p-1 rounded hover:bg-white/10">
           ✕
         </button>
       </div>
@@ -128,11 +198,10 @@ export default function ChatSidebar({ toUserId, isOpen, onClose }) {
         {messages.map((m) => (
           <div
             key={m.id}
-            className={`max-w-[75%] px-4 py-2 rounded-xl text-sm ${
-              m.senderId === currentUser?.uid
+            className={`max-w-[75%] px-4 py-2 rounded-xl text-sm break-words
+              ${m.senderId === currentUser?.uid
                 ? 'bg-blue-500 text-white self-end'
-                : 'bg-gray-200 text-gray-800 self-start'
-            }`}
+                : 'bg-gray-200 text-gray-800 self-start'}`}
           >
             {m.text}
           </div>
@@ -141,13 +210,13 @@ export default function ChatSidebar({ toUserId, isOpen, onClose }) {
 
       <div className="p-3 border-t bg-white flex gap-2">
         <input
+          ref={inputRef}
           type="text"
           placeholder="พิมพ์ข้อความ..."
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
           className="flex-1 px-4 py-2 border rounded-full text-sm outline-none"
-          autoFocus
         />
         <button
           onClick={handleSend}
