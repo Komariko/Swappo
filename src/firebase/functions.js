@@ -6,16 +6,21 @@ import {
   getDoc,
   setDoc,
   addDoc,
+  deleteDoc,
+  updateDoc,
+  increment,
   serverTimestamp,
   onSnapshot,
   query,
   orderBy,
+  limit,
 } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
 /* ----------------------- ✅ ตรวจสอบสถานะผู้ใช้ ----------------------- */
 export function authStateHandler(setUser) {
-  onAuthStateChanged(auth, (user) => {
+  // คืนค่า unsubscribe เพื่อให้ผู้เรียกนำไป cleanup ได้
+  return onAuthStateChanged(auth, (user) => {
     setUser(user || null);
   });
 }
@@ -55,20 +60,52 @@ export async function getUserProfile(uid) {
   };
 }
 
-/* ----------------------- ✅ เพิ่มสินค้าเข้ารายการโปรด ----------------------- */
+/* ----------------------- ✅ เพิ่ม/เอาออก จากรายการโปรด + นับยอดนิยม ----------------------- */
 export async function addToWatchlist(itemId) {
   const user = auth.currentUser;
-  if (!user) return;
+  if (!user) {
+    alert("กรุณาเข้าสู่ระบบก่อนบันทึก");
+    return;
+  }
 
   try {
-    const favRef = doc(db, "users", user.uid, "watchlist", itemId);
-    const favSnap = await getDoc(favRef);
-    if (favSnap.exists()) {
-      alert("❤️ โพสต์นี้ถูกเพิ่มไว้ในรายการโปรดแล้ว");
+    const itemRef = doc(db, "items", itemId);
+    const itemSnap = await getDoc(itemRef);
+    if (!itemSnap.exists()) {
+      alert("ไม่พบโพสต์นี้แล้ว");
       return;
     }
-    await setDoc(favRef, { itemId, addedAt: serverTimestamp() });
-    alert("✅ บันทึกไปในรายการโปรดแล้ว!");
+    const item = itemSnap.data();
+
+    // ❌ กันเจ้าของโพสต์บันทึกโพสต์ตัวเอง
+    if (item.user_id === user.uid) {
+      alert("ไม่สามารถบันทึกโพสต์ของตัวเองได้");
+      return;
+    }
+
+    // watchlist เก็บใต้ users/{uid}/watchlist/{itemId}
+    const favRef = doc(db, "users", user.uid, "watchlist", itemId);
+    const favSnap = await getDoc(favRef);
+
+    if (favSnap.exists()) {
+      // เอาออก + ลดตัวนับ
+      await deleteDoc(favRef);
+      await updateDoc(itemRef, {
+        watchCount: increment(-1),
+        watchCountUpdatedAt: serverTimestamp(),
+      });
+      alert("ลบออกจากรายการโปรดแล้ว");
+      return { ok: true, action: "removed" };
+    } else {
+      // เพิ่ม + เพิ่มตัวนับ
+      await setDoc(favRef, { itemId, addedAt: serverTimestamp() });
+      await updateDoc(itemRef, {
+        watchCount: increment(1),
+        watchCountUpdatedAt: serverTimestamp(),
+      });
+      alert("บันทึกไปในรายการโปรดแล้ว!");
+      return { ok: true, action: "added" };
+    }
   } catch (err) {
     console.error(err);
     alert("เกิดข้อผิดพลาด ลองใหม่อีกครั้ง");
@@ -81,12 +118,38 @@ export async function loadItems(searchTerm = "") {
     const q = query(collection(db, "items"), orderBy("createdAt", "desc"));
     const querySnapshot = await getDocs(q);
     const items = [];
-    querySnapshot.forEach((doc) => {
-      items.push({ id: doc.id, ...doc.data() });
-    });
+    querySnapshot.forEach((d) => items.push({ id: d.id, ...d.data() }));
     return items;
   } catch (err) {
     console.error("โหลดรายการล้มเหลว:", err);
+    return [];
+  }
+}
+
+/* ----------------------- ⭐ ดึงโพสต์ยอดนิยมตาม watchCount ----------------------- */
+export async function getPopularItems(limitCount = 10) {
+  try {
+    const q = query(
+      collection(db, "items"),
+      orderBy("watchCount", "desc"),
+      limit(limitCount)
+    );
+    const snap = await getDocs(q);
+    const items = await Promise.all(
+      snap.docs.map(async (d) => {
+        const data = { id: d.id, ...d.data() };
+        const profile = await getUserProfile(data.user_id).catch(() => null);
+        return {
+          ...data,
+          status: data?.status || "available",
+          profileUsername: profile?.username || "ไม่ทราบชื่อ",
+          profilePic: profile?.profilePic || "/images/profile-placeholder.jpg",
+        };
+      })
+    );
+    return items;
+  } catch (err) {
+    console.error("getPopularItems error:", err);
     return [];
   }
 }
@@ -136,9 +199,8 @@ export function loadPrivateChat(withUserId) {
 /* ----------------------- ✅ แสดงเวลาที่โพสต์แบบ time ago ----------------------- */
 export function formatTimeAgo(timestamp) {
   if (!timestamp) return "ไม่ทราบเวลา";
-
   const now = new Date();
-  const posted = timestamp.toDate();
+  const posted = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
   const seconds = Math.floor((now - posted) / 1000);
 
   if (seconds < 60) return "ไม่กี่วินาทีที่แล้ว";
@@ -146,7 +208,8 @@ export function formatTimeAgo(timestamp) {
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} ชั่วโมงที่แล้ว`;
   return `${Math.floor(seconds / 86400)} วันที่แล้ว`;
 }
-// ชั่วคราว: ใส่ไว้ตรงไหนก็ได้หลัง initialize เพื่อตรวจค่า
+
+/* ----------------------- 🔎 Debug (ชั่วคราว) ----------------------- */
 import { getApp } from "firebase/app";
 console.log("Firebase projectId =", getApp().options.projectId);
 console.log("authDomain =", getApp().options.authDomain);

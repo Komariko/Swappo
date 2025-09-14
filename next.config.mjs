@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
-  trailingSlash: true,
+  // ลบ output: 'export'
+  trailingSlash: true, // จะคงไว้/เอาออกก็ได้
   images: {
     domains: ['firebasestorage.googleapis.com'],
     unoptimized: true,
