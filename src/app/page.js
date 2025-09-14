@@ -70,9 +70,44 @@ export default function HomePage() {
     async function run() {
       if (!user) {
         setLoadingPopular(true);
-        const top = await getPopularItems(10);
-        setPopular(top || []);
-        setLoadingPopular(false);
+        try {
+          const top = await getPopularItems(10); // [{id, user_id, watchCount, ...}]
+          const enriched = await Promise.all(
+            (top || []).map(async (it) => {
+              try {
+                const profile = await getUserProfile(it.user_id);
+                return {
+                  ...it,
+                  status: it?.status || "available",
+                  profileUsername: profile?.username || "ไม่ระบุชื่อ",
+                  profilePic: profile?.profilePic || "/images/profile-placeholder.jpg",
+                  watchCount:
+                    typeof it.watchCount === "number"
+                      ? it.watchCount
+                      : typeof it.watchlistCount === "number"
+                      ? it.watchlistCount
+                      : 0,
+                };
+              } catch {
+                return {
+                  ...it,
+                  status: it?.status || "available",
+                  profileUsername: "ไม่ระบุชื่อ",
+                  profilePic: "/images/profile-placeholder.jpg",
+                  watchCount:
+                    typeof it.watchCount === "number"
+                      ? it.watchCount
+                      : typeof it.watchlistCount === "number"
+                      ? it.watchlistCount
+                      : 0,
+                };
+              }
+            })
+          );
+          setPopular(enriched);
+        } finally {
+          setLoadingPopular(false);
+        }
       } else {
         setLoading(true);
         loadItems()
@@ -107,7 +142,7 @@ export default function HomePage() {
     run();
   }, [user]);
 
-  // ------ FIX: เรียก useMemo เสมอ (ก่อน return เงื่อนไข) ------
+  // ------ useMemo (อยู่นอกเงื่อนไขเสมอ) ------
   const categories = useMemo(
     () => [
       { key: "all", label: "ทั้งหมด" },
@@ -201,7 +236,7 @@ export default function HomePage() {
                   return (
                     <Link
                       key={it.id}
-                      href={`/items/${it.id}`}
+                      href={`/item?id=${it.id}`}
                       className="group relative overflow-hidden rounded-2xl bg-white border border-slate-200 shadow hover:shadow-xl transition"
                     >
                       {/* rank ribbon */}
@@ -405,7 +440,7 @@ export default function HomePage() {
                       </div>
 
                       {/* Images */}
-                      <Link href={`/items/${item.id}`} className="px-4">
+                      <Link href={`/item?id=${item.id}`} className="px-4">
                         <div className="grid grid-cols-2 gap-3 text-center">
                           <div className="w-full rounded-lg bg-slate-50 border overflow-hidden aspect-[4/3]">
                             <img
@@ -447,7 +482,7 @@ export default function HomePage() {
                       {/* Footer */}
                       <div className="px-4 py-3 mt-auto flex items-center justify-between">
                         <Link
-                          href={`/items/${item.id}`}
+                          href={`/item?id=${item.id}`}
                           className="px-4 py-2 bg-rose-600 text-white rounded-full text-sm hover:bg-rose-700 shadow transition"
                         >
                           ดูรายละเอียด

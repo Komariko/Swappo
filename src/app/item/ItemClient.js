@@ -1,8 +1,8 @@
-'use client'
+"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -13,9 +13,10 @@ import OwnerStatusPanel from "@/components/OwnerStatusPanel";
 import { db, auth } from "@/firebase/config";
 import { doc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
-import { getUserProfile } from "@/firebase/functions";   // ✅ ดึงโปรไฟล์เจ้าของ
+import { getUserProfile } from "@/firebase/functions";
 import { Share2, ArrowLeft } from "lucide-react";
 
+/* helper */
 function timeAgo(ts) {
   const d = ts?.toDate ? ts.toDate() : (typeof ts === "number" || typeof ts === "string" ? new Date(ts) : null);
   if (!d) return "";
@@ -26,11 +27,13 @@ function timeAgo(ts) {
   return `${Math.floor(s / 86400)} วันที่แล้ว`;
 }
 
-export default function ItemDetailPage() {
-  const params = useParams();
+export default function ItemClient() {
+  const sp = useSearchParams();
+  const id = sp.get("id");
+
   const [item, setItem] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [imgIndex, setImgIndex] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   const [currentUid, setCurrentUid] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -43,34 +46,39 @@ export default function ItemDetailPage() {
     return () => unsub && unsub();
   }, []);
 
-  async function load() {
-    if (!params?.id) return;
-    setLoading(true);
-    try {
-      const snap = await getDoc(doc(db, "items", params.id));
-      if (!snap.exists()) { setItem(null); return; }
-
-      const data = { id: snap.id, ...snap.data() };
-      if (!data.status) data.status = "available";
-
-      // ✅ เติมโปรไฟล์เจ้าของโพส
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!id) { setItem(null); setLoading(false); return; }
+      setLoading(true);
       try {
-        const profile = await getUserProfile(data.user_id);
-        data.profileUsername = profile?.username || "ผู้โพสต์";
-        data.profilePic = profile?.profilePic || "/images/profile-placeholder.jpg";
-      } catch {
-        data.profileUsername = "ผู้โพสต์";
-        data.profilePic = "/images/profile-placeholder.jpg";
+        const snap = await getDoc(doc(db, "items", id));
+        if (!snap.exists()) { if (!cancelled) setItem(null); return; }
+        const data = { id: snap.id, ...snap.data() };
+        if (!data.status) data.status = "available";
+
+        try {
+          const profile = await getUserProfile(data.user_id);
+          data.profileUsername = profile?.username || "ผู้โพสต์";
+          data.profilePic = profile?.profilePic || "/images/profile-placeholder.jpg";
+        } catch {
+          data.profileUsername = "ผู้โพสต์";
+          data.profilePic = "/images/profile-placeholder.jpg";
+        }
+
+        if (!cancelled) {
+          setItem(data);
+          setImgIndex(0);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-
-      setItem(data);
-      setImgIndex(0);
-    } finally {
-      setLoading(false);
     }
-  }
+    run();
+    return () => { cancelled = true; };
+  }, [id]);
 
-  useEffect(() => { load(); }, [params?.id]);
+  const isOwner = useMemo(() => !!currentUid && item?.user_id === currentUid, [currentUid, item?.user_id]);
 
   if (loading) {
     return (
@@ -88,7 +96,7 @@ export default function ItemDetailPage() {
     );
   }
 
-  if (!item) {
+  if (!id || !item) {
     return (
       <>
         <Header />
@@ -109,7 +117,6 @@ export default function ItemDetailPage() {
 
   const images = Array.isArray(item.item_images) ? item.item_images : [];
   const activeImg = images[imgIndex] || "/img/default-placeholder.jpg";
-  const isOwner = !!currentUid && item.user_id === currentUid;
 
   return (
     <>
@@ -150,8 +157,12 @@ export default function ItemDetailPage() {
 
           <div className="p-4 md:p-6">
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 aspect-[4/3]">
-              <img src={activeImg} alt="ภาพสินค้า" className="w-full h-full object-cover"
-                   onError={(e) => (e.currentTarget.src = "/img/default-placeholder.jpg")} />
+              <img
+                src={activeImg}
+                alt="ภาพสินค้า"
+                className="w-full h-full object-cover"
+                onError={(e) => (e.currentTarget.src = "/img/default-placeholder.jpg")}
+              />
             </div>
 
             <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
@@ -162,8 +173,12 @@ export default function ItemDetailPage() {
                   className={`min-w-[88px] h-[66px] rounded-xl border overflow-hidden bg-white ${imgIndex === idx ? "ring-2 ring-rose-400" : "hover:opacity-90"}`}
                   title={`รูปที่ ${idx + 1}`}
                 >
-                  <img src={src} alt={`thumb-${idx}`} className="w-full h-full object-cover"
-                       onError={(e) => (e.currentTarget.src = "/img/default-placeholder.jpg")} />
+                  <img
+                    src={src}
+                    alt={`thumb-${idx}`}
+                    className="w-full h-full object-cover"
+                    onError={(e) => (e.currentTarget.src = "/img/default-placeholder.jpg")}
+                  />
                 </button>
               )) : <div className="text-slate-400 text-sm">ไม่มีรูปเพิ่มเติม</div>}
             </div>
@@ -199,9 +214,9 @@ export default function ItemDetailPage() {
           </div>
         </section>
 
-        {/* RIGHT (sticky sidebar) */}
+        {/* RIGHT */}
         <aside className="space-y-4 lg:sticky lg:top-24 h-fit">
-          {/* รอ auth พร้อมก่อนค่อยตัดสินใจแสดง */}
+          {/* เฉพาะผู้ชม (ไม่ใช่เจ้าของ) */}
           {authReady && !isOwner && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow">
               <div className="px-4 py-3 border-b">
@@ -214,6 +229,7 @@ export default function ItemDetailPage() {
             </div>
           )}
 
+          {/* เฉพาะเจ้าของ */}
           {authReady && isOwner && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow">
               <div className="px-4 py-3 border-b font-semibold">สถานะโพสต์ (เฉพาะเจ้าของ)</div>

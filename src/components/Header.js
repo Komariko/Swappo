@@ -19,7 +19,7 @@ import {
   orderBy,
   updateDoc,
   doc,
-  serverTimestamp,   // ✅ ใช้บันทึกเวลา handled/statusUpdatedAt
+  serverTimestamp,
 } from "firebase/firestore";
 
 /* ใช้ app จาก SDK */
@@ -158,7 +158,7 @@ export default function Header() {
       const itemId = n.itemId || n.data?.itemId;
       const requestedStatus = n.requestedStatus || n.data?.requestedStatus || "contacting";
       if (!itemId) {
-        alert("แจ้งเตือนไม่มีข้อมูลรายการ (itemId)"); 
+        alert("แจ้งเตือนไม่มีข้อมูลรายการ (itemId)");
         return;
       }
       setConfirmingId(n.id);
@@ -370,7 +370,7 @@ export default function Header() {
                             e.stopPropagation();
                             // คลิกทั้งแถบ = เปิดโพสต์ + ทำเป็นอ่านแล้ว
                             markAsRead(n.id);
-                            if (itemId) router.push(`/items/${itemId}`);
+                            if (itemId) router.push(`/item?id=${itemId}`); // ← เปลี่ยนลิงก์
                           }}
                         >
                           <div className="flex items-start gap-3">
@@ -380,7 +380,11 @@ export default function Header() {
                               {itemId && (
                                 <div className="mt-1 text-xs">
                                   รายการ:{" "}
-                                  <a className="text-rose-600 hover:underline" href={`/items/${itemId}`} onClick={(e)=>e.stopPropagation()}>
+                                  <a
+                                    className="text-rose-600 hover:underline"
+                                    href={`/item?id=${itemId}`} // ← เปลี่ยนลิงก์
+                                    onClick={(e)=>e.stopPropagation()}
+                                  >
                                     ดูโพสต์
                                   </a>
                                 </div>
