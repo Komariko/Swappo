@@ -185,8 +185,8 @@ export default function PostItemUI() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-rose-50 py-12 px-6">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-rose-50 py-8 px-4 sm:py-12 sm:px-6">
+      <div className="max-w-6xl w-full mx-auto">
         {!authReady ? (
           <div className="text-center py-24 text-slate-500">กำลังตรวจสอบสถานะผู้ใช้…</div>
         ) : !user ? (
@@ -196,20 +196,20 @@ export default function PostItemUI() {
           </div>
         ) : (
           <>
-            <motion.header initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mb-8">
-              <h1 className="text-center text-4xl md:text-5xl font-extrabold text-rose-600">โพสต์แลกเปลี่ยนสิ่งของ</h1>
-              <p className="mt-2 text-center text-slate-600">สร้างโพสต์สวย ๆ และค้นหาผู้แลกเปลี่ยนได้ง่าย</p>
+            <motion.header initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mb-6 md:mb-8">
+              <h1 className="text-center text-3xl sm:text-4xl md:text-5xl font-extrabold text-rose-600">โพสต์แลกเปลี่ยนสิ่งของ</h1>
+              <p className="mt-2 text-center text-sm sm:text-base text-slate-600">สร้างโพสต์สวย ๆ และค้นหาผู้แลกเปลี่ยนได้ง่าย</p>
             </motion.header>
 
             <motion.form
               onSubmit={handleSubmit}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="bg-white rounded-2xl shadow-xl p-6 grid grid-cols-1 md:grid-cols-3 gap-6"
+              className="bg-white rounded-2xl shadow-xl p-4 sm:p-6 grid grid-cols-1 md:grid-cols-3 gap-5 md:gap-6"
             >
               {/* LEFT: FORM */}
-              <div className="md:col-span-2 space-y-5">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2 space-y-5 sm:space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
                   <div>
                     <label className={labelBase}>ชื่อสิ่งของที่นำมาแลก</label>
                     <input
@@ -233,7 +233,7 @@ export default function PostItemUI() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
                   <div>
                     <label className={labelBase}>สภาพสินค้า</label>
                     <select name="condition" value={formData.condition} onChange={handleInputChange} className={inputBase}>
@@ -315,11 +315,11 @@ export default function PostItemUI() {
                   />
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                   <button
                     type="button"
                     onClick={() => document.getElementById("upload-give").click()}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-rose-500 text-white rounded-2xl shadow hover:shadow-md transition"
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-rose-500 text-white rounded-2xl shadow hover:shadow-md transition w-full sm:w-auto"
                   >
                     <ImageIcon className="w-5 h-5" /> แนบรูปหลายรูป
                   </button>
@@ -327,23 +327,23 @@ export default function PostItemUI() {
                   <button
                     type="button"
                     onClick={() => document.getElementById("upload-receive-1").click()}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-2xl hover:bg-slate-50 transition"
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 rounded-2xl hover:bg-slate-50 transition w-full sm:w-auto"
                   >
                     <Camera className="w-4 h-4 text-slate-700" /> แนบรูปที่ต้องการแลก (1 รูป)
                   </button>
 
-                  <div className="ml-auto flex items-center gap-2">
+                  <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:items-center sm:ml-auto">
                     <button
                       type="button"
                       onClick={clearAll}
-                      className="px-4 py-2 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50"
+                      className="px-4 py-2 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 w-full sm:w-auto"
                     >
                       รีเซ็ต
                     </button>
                     <button
                       type="submit"
                       disabled={isSubmitting}
-                      className="inline-flex items-center gap-3 px-5 py-3 bg-rose-600 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transition disabled:opacity-60"
+                      className="inline-flex items-center justify-center gap-3 px-5 py-3 bg-rose-600 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transition disabled:opacity-60 w-full sm:w-auto"
                     >
                       {isSubmitting ? (
                         <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24">
@@ -358,7 +358,7 @@ export default function PostItemUI() {
                   </div>
                 </div>
 
-                {message && <p className="text-center text-sm text-rose-600 font-medium">{message}</p>}
+                {message && <p className="mt-2 text-center text-sm text-rose-600 font-medium">{message}</p>}
 
                 {/* hidden inputs */}
                 <input id="upload-give" type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
@@ -367,15 +367,15 @@ export default function PostItemUI() {
 
               {/* RIGHT: PREVIEW */}
               <aside className="flex flex-col items-stretch gap-4 md:col-span-1">
-                <div className="bg-gradient-to-br from-white to-rose-50 p-4 rounded-2xl border border-slate-100 shadow-inner">
+                <div className="bg-gradient-to-br from-white to-rose-50 p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-inner">
                   <h3 className="text-lg font-semibold text-slate-700">ตัวอย่างโพสต์</h3>
                   <p className="text-sm text-slate-500 mt-1">ตรวจสอบภาพและข้อมูลก่อนโพสต์</p>
 
-                  <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
                     {previews.length > 0 ? (
                       previews.slice(0, 4).map((src, i) => (
                         <div key={i} className="relative rounded-xl overflow-hidden bg-slate-100">
-                          <img src={src} alt={`preview-${i}`} className="object-cover w-full h-28" />
+                          <img src={src} alt={`preview-${i}`} className="object-cover w-full h-24 sm:h-28" />
                           <button
                             type="button"
                             onClick={() => removeImageAt(i)}
@@ -386,7 +386,7 @@ export default function PostItemUI() {
                         </div>
                       ))
                     ) : (
-                      <div className="col-span-2 flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-200 rounded-xl">
+                      <div className="col-span-2 flex flex-col items-center justify-center p-5 sm:p-6 border-2 border-dashed border-slate-200 rounded-xl">
                         <ImageIcon className="w-10 h-10 text-slate-300" />
                         <p className="text-sm mt-2 text-slate-400">ยังไม่มีรูปที่แนบ</p>
                       </div>
@@ -397,16 +397,16 @@ export default function PostItemUI() {
                       <label className="text-sm font-medium text-slate-700">รูปที่ต้องการแลก</label>
                       <div className="mt-2 rounded-xl overflow-hidden bg-slate-50 border border-slate-100">
                         {itemWantedImage ? (
-                          <img src={URL.createObjectURL(itemWantedImage)} alt="wanted" className="object-cover w-full h-40" />
+                          <img src={URL.createObjectURL(itemWantedImage)} alt="wanted" className="object-cover w-full h-40 sm:h-48" />
                         ) : (
-                          <div className="flex items-center justify-center p-6 text-slate-400">ยังไม่มีรูปที่เลือก</div>
+                          <div className="flex items-center justify-center p-5 sm:p-6 text-slate-400">ยังไม่มีรูปที่เลือก</div>
                         )}
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-100 text-sm text-slate-600 shadow-sm">
+                <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 text-sm text-slate-600 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-xs text-slate-500">ผู้ใช้</div>

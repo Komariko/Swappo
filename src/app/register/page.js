@@ -104,7 +104,7 @@ export default function RegisterPage() {
           </div>
 
           <p className="mt-3 text-slate-500 text-center">
-            แลกเปลี่ยนสิ่งของง่าย ๆ ในชุมชนของคุณ — ปลอดภัย รวดเร็ว และฟรี
+              แลกเปลี่ยนสิ่งของกับเพื่อน ๆ ได้ในไม่กี่คลิก
           </p>
 
           {/* โลโก้ใหม่ (รองรับ dark mode) */}

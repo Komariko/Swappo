@@ -6,7 +6,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { authStateHandler, logout } from "@/firebase/functions";
 import {
-  Search, Bell, Menu, X, User, PlusSquare, Heart, MessageSquare, LogOut, Check, CircleX
+  Bell, Menu, X, User, PlusSquare, Heart, MessageSquare, LogOut, Check, CircleX
 } from "lucide-react";
 
 /* Firestore */
@@ -30,22 +30,18 @@ export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [queryStr, setQueryStr] = useState("");
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // สถานะการรองรับ/permission ของ Notifications
   const [notifSupported, setNotifSupported] = useState(false);
-  const [notifPermission, setNotifPermission] = useState("default"); // 'default' | 'granted' | 'denied'
-
-  // สถานะกดปุ่มยืนยัน (กันกดซ้ำ)
+  const [notifPermission, setNotifPermission] = useState("default");
   const [confirmingId, setConfirmingId] = useState(null);
 
   const router = useRouter();
   const clickScopeRef = useRef(null);
   const notifUnsubRef = useRef(null);
 
-  // ===== Detect Notification support (client only) =====
+  // ตรวจสอบ Notification support
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
       setNotifSupported(true);
@@ -53,16 +49,14 @@ export default function Header() {
     }
   }, []);
 
-  // ===== auth + subscribe notifications (ไม่ขอ permission อัตโนมัติแล้ว) =====
+  // auth + subscribe notifications
   useEffect(() => {
     authStateHandler(async (u) => {
       setUser(u);
-
       if (notifUnsubRef.current) {
         try { notifUnsubRef.current(); } catch {}
         notifUnsubRef.current = null;
       }
-
       if (u) {
         const qRef = query(
           collection(db, "notifications"),
@@ -72,7 +66,6 @@ export default function Header() {
         const unsub = onSnapshot(qRef, (snap) => {
           const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
           setNotifications(docs);
-          // ✅ นับเฉพาะยังไม่อ่าน + ยังไม่ได้จัดการ
           setUnreadCount(docs.filter((n) => !n.read && !n.handled).length);
         });
         notifUnsubRef.current = unsub;
@@ -81,7 +74,6 @@ export default function Header() {
         setUnreadCount(0);
       }
     });
-
     return () => {
       if (notifUnsubRef.current) {
         try { notifUnsubRef.current(); } catch {}
@@ -115,15 +107,6 @@ export default function Header() {
     };
   }, []);
 
-  const onSearch = (e) => {
-    e.preventDefault();
-    const q = (queryStr || "").trim();
-    if (!q) return;
-    router.push(`/search?q=${encodeURIComponent(q)}`);
-    setQueryStr("");
-    setMobileOpen(false);
-  };
-
   const handleLogout = async () => {
     try {
       await logout();
@@ -136,38 +119,28 @@ export default function Header() {
   };
 
   const markAsRead = async (notifId) => {
-    try {
-      await updateDoc(doc(db, "notifications", notifId), { read: true });
-    } catch (e) {
-      console.error("markAsRead error", e);
-    }
+    try { await updateDoc(doc(db, "notifications", notifId), { read: true }); }
+    catch (e) { console.error("markAsRead error", e); }
   };
 
   const markAllAsRead = async () => {
     try {
       const unread = notifications.filter((n) => !n.read);
       await Promise.all(unread.map((n) => updateDoc(doc(db, "notifications", n.id), { read: true })));
-    } catch (e) {
-      console.error("markAllAsRead error", e);
-    }
+    } catch (e) { console.error("markAllAsRead error", e); }
   };
 
-  // ✅ ยืนยันคำขอ "กำลังติดต่อ" จากแจ้งเตือน
+  // ยืนยันคำขอ "กำลังติดต่อ"
   async function confirmContacting(n) {
     try {
       const itemId = n.itemId || n.data?.itemId;
       const requestedStatus = n.requestedStatus || n.data?.requestedStatus || "contacting";
-      if (!itemId) {
-        alert("แจ้งเตือนไม่มีข้อมูลรายการ (itemId)");
-        return;
-      }
+      if (!itemId) { alert("แจ้งเตือนไม่มีข้อมูลรายการ (itemId)"); return; }
       setConfirmingId(n.id);
-      // 1) อัปเดตสถานะ item
       await updateDoc(doc(db, "items", itemId), {
         status: requestedStatus,
         statusUpdatedAt: serverTimestamp(),
       });
-      // 2) ปิดแจ้งเตือน (handled + read)
       await updateDoc(doc(db, "notifications", n.id), {
         handled: true,
         read: true,
@@ -181,27 +154,23 @@ export default function Header() {
     }
   }
 
-  // ===== ขอสิทธิ + บันทึก FCM token เฉพาะตอนที่ผู้ใช้กด =====
+  // ขอสิทธิ + บันทึก FCM token เมื่อผู้ใช้กด
   async function requestAndSaveFcmToken(uid) {
     try {
       if (typeof window === "undefined" || typeof Notification === "undefined") return;
       const app = getApps().length ? getApp() : null;
       if (!app) return;
-
       const { getMessaging, getToken, isSupported } = await import("firebase/messaging");
       const supported = await isSupported();
       if (!supported) return;
-
       const permission = await Notification.requestPermission();
       setNotifPermission(permission);
       if (permission !== "granted") return;
-
       const messaging = getMessaging(app);
       const token = await getToken(messaging, {
         vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
       });
       if (!token) return;
-
       await fetch("/api/saveFcmToken", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -215,7 +184,7 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 bg-white/85 backdrop-blur border-b border-slate-100">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        {/* top bar */}
+        {/* Top bar */}
         <div className="flex items-center justify-between h-16">
           {/* Left */}
           <div className="flex items-center gap-3">
@@ -230,7 +199,6 @@ export default function Header() {
             </button>
 
             <Link href="/" className="flex items-center gap-2">
-              {/* โลโก้สว่าง/มืดอัตโนมัติ */}
               <span className="block dark:hidden">
                 <Image
                   src="/images/swappo-logo.svg"
@@ -252,32 +220,6 @@ export default function Header() {
                 />
               </span>
             </Link>
-          </div>
-
-          {/* Middle: Search */}
-          <div className="hidden md:flex flex-1 px-6">
-            <form onSubmit={onSearch} className="w-full">
-              <label htmlFor="search" className="sr-only">ค้นหา</label>
-              <div className="group flex items-center bg-white border border-slate-200 rounded-full overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-rose-300">
-                <div className="px-4 text-slate-400">
-                  <Search className="w-4 h-4" />
-                </div>
-                <input
-                  id="search"
-                  type="search"
-                  value={queryStr}
-                  onChange={(e) => setQueryStr(e.target.value)}
-                  placeholder="ค้นหาสินค้า ผู้ใช้งาน หรือหมวดหมู่"
-                  className="flex-1 px-3 py-2 bg-transparent outline-none text-sm"
-                />
-                <button
-                  type="submit"
-                  className="mx-1 my-1 px-4 py-2 rounded-full bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition"
-                >
-                  ค้นหา
-                </button>
-              </div>
-            </form>
           </div>
 
           {/* Right */}
@@ -323,25 +265,19 @@ export default function Header() {
                     <button
                       type="button"
                       className="text-xs text-slate-500 hover:text-slate-700"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        markAllAsRead();
-                      }}
+                      onClick={(e) => { e.stopPropagation(); markAllAsRead(); }}
                     >
                       ทำเครื่องหมายว่าอ่านแล้ว
                     </button>
                   </div>
 
-                  {/* แถบเปิดใช้งานการแจ้งเตือน (ขอ permission เมื่อผู้ใช้กด) */}
+                  {/* แถบเปิดใช้งานการแจ้งเตือน */}
                   {user && notifSupported && notifPermission !== "granted" && (
                     <div className="px-4 py-3 border-b bg-amber-50 text-amber-800 text-xs flex items-center justify-between gap-3">
                       <div>ต้องเปิดการแจ้งเตือนเพื่อรับข่าวสารแบบเรียลไทม์</div>
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          requestAndSaveFcmToken(user.uid);
-                        }}
+                        onClick={(e) => { e.stopPropagation(); requestAndSaveFcmToken(user.uid); }}
                         className="px-2 py-1 rounded-full bg-amber-600 text-white hover:bg-amber-700"
                       >
                         เปิดการแจ้งเตือน
@@ -355,11 +291,9 @@ export default function Header() {
                     )}
 
                     {notifications.map((n) => {
-                      // ✅ รองรับได้ทั้งรูปแบบใหม่/เดิม
                       const itemId = n.itemId || n.data?.itemId;
                       const type = n.type || n.data?.type;
-                      const requestedStatus = n.requestedStatus || n.data?.requestedStatus || "contacting";
-                      const isInterest = type === "interest";
+                      const isInterest = (type === "interest");
                       const bg = !n.read && !n.handled ? "bg-white" : "bg-slate-50";
 
                       return (
@@ -368,9 +302,8 @@ export default function Header() {
                           className={`p-3 border-b ${bg}`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            // คลิกทั้งแถบ = เปิดโพสต์ + ทำเป็นอ่านแล้ว
                             markAsRead(n.id);
-                            if (itemId) router.push(`/item?id=${itemId}`); // ← เปลี่ยนลิงก์
+                            if (itemId) router.push(`/item?id=${itemId}`);
                           }}
                         >
                           <div className="flex items-start gap-3">
@@ -380,11 +313,7 @@ export default function Header() {
                               {itemId && (
                                 <div className="mt-1 text-xs">
                                   รายการ:{" "}
-                                  <a
-                                    className="text-rose-600 hover:underline"
-                                    href={`/item?id=${itemId}`} // ← เปลี่ยนลิงก์
-                                    onClick={(e)=>e.stopPropagation()}
-                                  >
+                                  <a className="text-rose-600 hover:underline" href={`/item?id=${itemId}`} onClick={(e)=>e.stopPropagation()}>
                                     ดูโพสต์
                                   </a>
                                 </div>
@@ -394,7 +323,6 @@ export default function Header() {
                               </div>
                             </div>
 
-                            {/* ปุ่มยืนยัน/ซ่อนสำหรับคำขอความสนใจ */}
                             {isInterest && !n.handled && (
                               <div className="flex flex-col gap-1">
                                 <button
@@ -504,29 +432,6 @@ export default function Header() {
               </div>
             )}
           </div>
-        </div>
-
-        {/* search (mobile) */}
-        <div className="md:hidden pb-3">
-          <form onSubmit={onSearch}>
-            <label htmlFor="m-search" className="sr-only">ค้นหา</label>
-            <div className="flex items-center bg-white border border-slate-200 rounded-full overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-rose-300">
-              <div className="px-4 text-slate-400">
-                <Search className="w-4 h-4" />
-              </div>
-              <input
-                id="m-search"
-                type="search"
-                value={queryStr}
-                onChange={(e) => setQueryStr(e.target.value)}
-                placeholder="ค้นหาสินค้า ผู้ใช้งาน หรือหมวดหมู่"
-                className="flex-1 px-3 py-2 bg-transparent outline-none text-sm"
-              />
-              <button type="submit" className="mx-1 my-1 px-4 py-2 rounded-full bg-rose-600 text-white text-sm font-medium">
-                ค้นหา
-              </button>
-            </div>
-          </form>
         </div>
       </div>
 

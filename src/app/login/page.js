@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/firebase/config";
+import Link from "next/link";
 import {
   signInWithEmailAndPassword,
   setPersistence,
@@ -79,7 +80,7 @@ export default function LoginPage() {
           </div>
 
           <p className="mt-3 text-slate-500 text-center">
-            กลับมาแลกเปลี่ยนสิ่งของกับเพื่อน ๆ ได้ในไม่กี่คลิก
+           แลกเปลี่ยนสิ่งของกับเพื่อน ๆ ได้ในไม่กี่คลิก
           </p>
 
           {/* โลโก้ใหม่ */}
@@ -99,7 +100,7 @@ export default function LoginPage() {
           <ul className="mt-8 w-full text-slate-600 space-y-2 text-sm">
             <li className="flex gap-2"><span className="text-emerald-600">•</span> ใช้อีเมลที่ลงทะเบียนไว้</li>
             <li className="flex gap-2"><span className="text-emerald-600">•</span> ลืมรหัส? รีเซ็ตได้ที่ Forgot Password</li>
-            <li className="flex gap-2"><span className="text-emerald-600">•</span> มีปัญหาโดเมน/เน็ต ให้ลองเคลียร์แคช</li>
+            {/* <li className="flex gap-2"><span className="text-emerald-600">•</span> มีปัญหาโดเมน/เน็ต ให้ลองเคลียร์แคช</li> */}
           </ul>
         </div>
 
@@ -107,17 +108,16 @@ export default function LoginPage() {
         <div className="order-2 lg:order-1">
           <div className="bg-white rounded-3xl border border-slate-100 shadow-xl p-6 sm:p-8">
             <h1 className="text-3xl font-extrabold tracking-tight text-slate-800">
-              ยินดีต้อนรับกลับมา
+              ยินดีต้อนรับ
             </h1>
             <p className="mt-2 text-slate-500">กรอกอีเมลและรหัสผ่านเพื่อเข้าสู่ระบบ</p>
 
             {status.type !== "idle" && (
               <div
-                className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
-                  status.type === "error"
+                className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${status.type === "error"
                     ? "border-rose-200 bg-rose-50 text-rose-700"
                     : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                }`}
+                  }`}
               >
                 {status.msg}
               </div>
@@ -170,9 +170,12 @@ export default function LoginPage() {
                 </div>
 
                 <div className="mt-2 text-right text-sm">
-                  <a href="/forgot-password" className="text-rose-600 hover:underline">
-                    Forgot Password?
-                  </a>
+                  <p className="mt-3 text-right text-sm">
+                    <Link href="/forgot-password" className="text-rose-600 hover:text-rose-700 underline underline-offset-4">
+                      ลืมรหัสผ่าน?
+                    </Link>
+                  </p>
+
                 </div>
               </div>
 

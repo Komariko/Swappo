@@ -1,3 +1,4 @@
+// src/firebase/functions.js
 import { db, auth } from './config';
 import {
   collection,
@@ -60,12 +61,24 @@ export async function getUserProfile(uid) {
   };
 }
 
-/* ----------------------- ✅ เพิ่ม/เอาออก จากรายการโปรด + นับยอดนิยม ----------------------- */
+/* ----------------------- ⭐ รายการโปรด (watchlist) ----------------------- */
+/** subscribe รายการโปรดของผู้ใช้ -> ส่ง Set ของ itemId กลับผ่าน setIds */
+export function watchlistListener(setIds) {
+  const user = auth.currentUser;
+  if (!user) return () => {};
+  const ref = collection(db, "users", user.uid, "watchlist");
+  return onSnapshot(ref, (snap) => {
+    const ids = new Set(snap.docs.map(d => d.id));
+    setIds(ids);
+  });
+}
+
+/** เพิ่มเข้ารายการโปรด (idempotent) + เพิ่มตัวนับ */
 export async function addToWatchlist(itemId) {
   const user = auth.currentUser;
   if (!user) {
     alert("กรุณาเข้าสู่ระบบก่อนบันทึก");
-    return;
+    return { ok: false, reason: "no-auth" };
   }
 
   try {
@@ -73,43 +86,75 @@ export async function addToWatchlist(itemId) {
     const itemSnap = await getDoc(itemRef);
     if (!itemSnap.exists()) {
       alert("ไม่พบโพสต์นี้แล้ว");
-      return;
+      return { ok: false, reason: "not-found" };
     }
     const item = itemSnap.data();
 
-    // ❌ กันเจ้าของโพสต์บันทึกโพสต์ตัวเอง
+    // กันเจ้าของโพสต์บันทึกโพสต์ตัวเอง
     if (item.user_id === user.uid) {
       alert("ไม่สามารถบันทึกโพสต์ของตัวเองได้");
-      return;
+      return { ok: false, reason: "own-post" };
     }
 
-    // watchlist เก็บใต้ users/{uid}/watchlist/{itemId}
     const favRef = doc(db, "users", user.uid, "watchlist", itemId);
     const favSnap = await getDoc(favRef);
-
     if (favSnap.exists()) {
-      // เอาออก + ลดตัวนับ
-      await deleteDoc(favRef);
-      await updateDoc(itemRef, {
-        watchCount: increment(-1),
-        watchCountUpdatedAt: serverTimestamp(),
-      });
-      alert("ลบออกจากรายการโปรดแล้ว");
-      return { ok: true, action: "removed" };
-    } else {
-      // เพิ่ม + เพิ่มตัวนับ
-      await setDoc(favRef, { itemId, addedAt: serverTimestamp() });
-      await updateDoc(itemRef, {
-        watchCount: increment(1),
-        watchCountUpdatedAt: serverTimestamp(),
-      });
-      alert("บันทึกไปในรายการโปรดแล้ว!");
-      return { ok: true, action: "added" };
+      // มีอยู่แล้ว -> ไม่ทำซ้ำ
+      return { ok: true, action: "exists" };
     }
+
+    await setDoc(favRef, { itemId, addedAt: serverTimestamp() });
+    await updateDoc(itemRef, {
+      watchCount: increment(1),
+      watchCountUpdatedAt: serverTimestamp(),
+    });
+    return { ok: true, action: "added" };
   } catch (err) {
-    console.error(err);
+    console.error("addToWatchlist error:", err);
     alert("เกิดข้อผิดพลาด ลองใหม่อีกครั้ง");
+    return { ok: false, reason: "error" };
   }
+}
+
+/** เอาออกจากรายการโปรด (ถ้ามี) + ลดตัวนับ */
+export async function removeFromWatchlist(itemId) {
+  const user = auth.currentUser;
+  if (!user) return { ok: false, reason: "no-auth" };
+
+  try {
+    const favRef = doc(db, "users", user.uid, "watchlist", itemId);
+    const favSnap = await getDoc(favRef);
+    if (!favSnap.exists()) {
+      return { ok: true, action: "noop" };
+    }
+
+    await deleteDoc(favRef);
+    const itemRef = doc(db, "items", itemId);
+    await updateDoc(itemRef, {
+      watchCount: increment(-1),
+      watchCountUpdatedAt: serverTimestamp(),
+    });
+    return { ok: true, action: "removed" };
+  } catch (err) {
+    console.error("removeFromWatchlist error:", err);
+    alert("ลบออกจากรายการโปรดไม่สำเร็จ");
+    return { ok: false, reason: "error" };
+  }
+}
+
+/** toggle รายการโปรดแบบเดียวจบ (เผื่ออยากใช้) */
+export async function toggleWatchlist(itemId) {
+  const user = auth.currentUser;
+  if (!user) {
+    alert("กรุณาเข้าสู่ระบบก่อนบันทึก");
+    return { ok: false, reason: "no-auth" };
+  }
+
+  const favRef = doc(db, "users", user.uid, "watchlist", itemId);
+  const favSnap = await getDoc(favRef);
+  return favSnap.exists()
+    ? removeFromWatchlist(itemId)
+    : addToWatchlist(itemId);
 }
 
 /* ----------------------- ✅ โหลดรายการสินค้า โดยเรียงจากล่าสุด ----------------------- */
@@ -154,7 +199,7 @@ export async function getPopularItems(limitCount = 10) {
   }
 }
 
-/* ----------------------- ✅ ส่งข้อความแชท ----------------------- */
+/* ----------------------- ✅ แชทส่วนตัว ----------------------- */
 export async function sendPrivateMessage(toUserId, text) {
   const currentUser = auth.currentUser;
   if (!currentUser) return;
@@ -170,7 +215,6 @@ export async function sendPrivateMessage(toUserId, text) {
   });
 }
 
-/* ----------------------- ✅ โหลดข้อความแชทแบบเรียลไทม์ ----------------------- */
 export function loadPrivateChat(withUserId) {
   const currentUser = auth.currentUser;
   if (!currentUser) return;
@@ -196,7 +240,7 @@ export function loadPrivateChat(withUserId) {
   });
 }
 
-/* ----------------------- ✅ แสดงเวลาที่โพสต์แบบ time ago ----------------------- */
+/* ----------------------- ✅ time ago ----------------------- */
 export function formatTimeAgo(timestamp) {
   if (!timestamp) return "ไม่ทราบเวลา";
   const now = new Date();
