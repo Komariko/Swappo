@@ -4,12 +4,16 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+
+// ✅ ฟังก์ชันช่วยเรื่องสถานะล็อกอิน และออกจากระบบ
 import { authStateHandler, logout } from "@/firebase/functions";
+
+// ✅ ไอคอนที่ใช้ในเฮดเดอร์
 import {
   Bell, Menu, X, User, PlusSquare, Heart, MessageSquare, LogOut, Check, CircleX
 } from "lucide-react";
 
-/* Firestore */
+/* ---------- Firestore ---------- */
 import { db } from "@/firebase/config";
 import {
   collection,
@@ -22,41 +26,51 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 
-/* ใช้ app จาก SDK */
+/* ใช้ app จาก Firebase SDK (สำหรับขอ FCM token) */
 import { getApp, getApps } from "firebase/app";
 
 export default function Header() {
-  const [user, setUser] = useState(null);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  // ---------- สถานะที่ใช้ควบคุม UI ----------
+  const [user, setUser] = useState(null);              // ผู้ใช้ที่ล็อกอินอยู่ (หรือ null)
+  const [mobileOpen, setMobileOpen] = useState(false); // เปิด/ปิดเมนูมือถือ
+  const [profileOpen, setProfileOpen] = useState(false);// เปิด/ปิดเมนูโปรไฟล์
+  const [notifOpen, setNotifOpen] = useState(false);    // เปิด/ปิดป๊อปอัปแจ้งเตือน
 
+  // ---------- ข้อมูลแจ้งเตือน ----------
+  const [notifications, setNotifications] = useState([]); // รายการแจ้งเตือนของฉัน
+  const [unreadCount, setUnreadCount] = useState(0);      // จำนวนที่ยังไม่ได้อ่าน
+
+  // ---------- สถานะการรองรับ/สิทธิ Notification API ----------
   const [notifSupported, setNotifSupported] = useState(false);
   const [notifPermission, setNotifPermission] = useState("default");
-  const [confirmingId, setConfirmingId] = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null); // ใช้แสดงปุ่มกำลังยืนยัน
 
+  // ตัวช่วยสำหรับคลิกนอกป๊อปอัป, และเก็บฟังก์ชันยกเลิก onSnapshot
   const router = useRouter();
   const clickScopeRef = useRef(null);
   const notifUnsubRef = useRef(null);
 
-  // ตรวจสอบ Notification support
+  /* ---------- เช็คว่าเบราว์เซอร์รองรับ Notification ไหม ---------- */
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
       setNotifSupported(true);
-      setNotifPermission(Notification.permission);
+      setNotifPermission(Notification.permission); // "default" | "granted" | "denied"
     }
   }, []);
 
-  // auth + subscribe notifications
+  /* ---------- ฟังสถานะล็อกอิน แล้ว subscribe แจ้งเตือนแบบเรียลไทม์ ---------- */
   useEffect(() => {
+    // authStateHandler จะเรียก callback ทุกครั้งที่มีการเปลี่ยนแปลงสถานะผู้ใช้
     authStateHandler(async (u) => {
       setUser(u);
+
+      // ยกเลิกการติดตามเก่าก่อน (ป้องกันซ้อนหลายครั้ง)
       if (notifUnsubRef.current) {
         try { notifUnsubRef.current(); } catch {}
         notifUnsubRef.current = null;
       }
+
+      // ถ้ามีผู้ใช้ → ฟัง collection "notifications" ของคนนั้น
       if (u) {
         const qRef = query(
           collection(db, "notifications"),
@@ -70,10 +84,13 @@ export default function Header() {
         });
         notifUnsubRef.current = unsub;
       } else {
+        // ไม่มีผู้ใช้ → ล้างข้อมูล
         setNotifications([]);
         setUnreadCount(0);
       }
     });
+
+    // cleanup ตอน Header ถูกถอด
     return () => {
       if (notifUnsubRef.current) {
         try { notifUnsubRef.current(); } catch {}
@@ -82,7 +99,7 @@ export default function Header() {
     };
   }, []);
 
-  // click outside & ESC
+  /* ---------- ปิดป๊อปอัปเมื่อคลิกข้างนอก / กด ESC ---------- */
   useEffect(() => {
     function onDoc(e) {
       const el = clickScopeRef.current;
@@ -107,6 +124,7 @@ export default function Header() {
     };
   }, []);
 
+  /* ---------- ออกจากระบบ ---------- */
   const handleLogout = async () => {
     try {
       await logout();
@@ -118,6 +136,7 @@ export default function Header() {
     }
   };
 
+  /* ---------- ทำเป็นอ่านแล้ว (แจ้งเตือนเดี่ยว/ทั้งหมด) ---------- */
   const markAsRead = async (notifId) => {
     try { await updateDoc(doc(db, "notifications", notifId), { read: true }); }
     catch (e) { console.error("markAsRead error", e); }
@@ -130,17 +149,25 @@ export default function Header() {
     } catch (e) { console.error("markAllAsRead error", e); }
   };
 
-  // ยืนยันคำขอ "กำลังติดต่อ"
+  /* ---------- ปุ่ม “ยืนยันกำลังติดต่อ” บนการแจ้งเตือนชนิด interest ----------
+     - อัปเดตสถานะโพสต์ใน items
+     - ทำเครื่องหมายว่าแจ้งเตือนนี้ถูกจัดการแล้ว
+  ---------------------------------------------------------------------- */
   async function confirmContacting(n) {
     try {
       const itemId = n.itemId || n.data?.itemId;
       const requestedStatus = n.requestedStatus || n.data?.requestedStatus || "contacting";
       if (!itemId) { alert("แจ้งเตือนไม่มีข้อมูลรายการ (itemId)"); return; }
+
       setConfirmingId(n.id);
+
+      // อัปเดตสถานะโพสต์
       await updateDoc(doc(db, "items", itemId), {
         status: requestedStatus,
         statusUpdatedAt: serverTimestamp(),
       });
+
+      // อัปเดตสถานะแจ้งเตือน (handled + read)
       await updateDoc(doc(db, "notifications", n.id), {
         handled: true,
         read: true,
@@ -154,23 +181,34 @@ export default function Header() {
     }
   }
 
-  // ขอสิทธิ + บันทึก FCM token เมื่อผู้ใช้กด
+  /* ---------- ขออนุญาตแจ้งเตือน + บันทึก FCM token (เมื่อผู้ใช้กด) ----------
+     - ใช้ getMessaging/getToken จาก firebase/messaging
+     - ส่ง token ไปเก็บที่ API ฝั่งเซิร์ฟเวอร์
+  -------------------------------------------------------------------------- */
   async function requestAndSaveFcmToken(uid) {
     try {
       if (typeof window === "undefined" || typeof Notification === "undefined") return;
+
+      // ต้องมี Firebase app ก่อน ถึงจะใช้ Messaging ได้
       const app = getApps().length ? getApp() : null;
       if (!app) return;
+
       const { getMessaging, getToken, isSupported } = await import("firebase/messaging");
       const supported = await isSupported();
       if (!supported) return;
+
+      // ต้องเกิดจากการคลิกของผู้ใช้เท่านั้น เบราว์เซอร์ถึงจะถามสิทธิ
       const permission = await Notification.requestPermission();
       setNotifPermission(permission);
       if (permission !== "granted") return;
+
       const messaging = getMessaging(app);
       const token = await getToken(messaging, {
         vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
       });
       if (!token) return;
+
+      // ส่ง token ไปเก็บ (เพื่อใช้ส่ง push notification)
       await fetch("/api/saveFcmToken", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -181,13 +219,16 @@ export default function Header() {
     }
   }
 
+  /* ============================== UI ============================== */
   return (
+    // เฮดเดอร์ติดบนสุด (sticky) + เบลอพื้นหลังเล็กน้อย
     <header className="sticky top-0 z-50 bg-white/85 backdrop-blur border-b border-slate-100">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        {/* Top bar */}
+        {/* แถบบน: โลโก้ซ้าย / ปุ่มต่าง ๆ ขวา */}
         <div className="flex items-center justify-between h-16">
-          {/* Left */}
+          {/* ซ้าย: ปุ่มเปิดเมนูมือถือ + โลโก้ */}
           <div className="flex items-center gap-3">
+            {/* ปุ่มเบอร์เกอร์ (มือถือ) */}
             <button
               type="button"
               className="md:hidden p-2 rounded-xl hover:bg-slate-100"
@@ -198,6 +239,7 @@ export default function Header() {
               {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
 
+            {/* โลโก้ (สว่าง/มืด) */}
             <Link href="/" className="flex items-center gap-2">
               <span className="block dark:hidden">
                 <Image
@@ -222,8 +264,9 @@ export default function Header() {
             </Link>
           </div>
 
-          {/* Right */}
+          {/* ขวา: ปุ่มสร้างโพสต์ / แจ้งเตือน / เมนูโปรไฟล์ */}
           <div className="flex items-center gap-2 sm:gap-3" ref={clickScopeRef}>
+            {/* สร้างโพสต์ (เดสก์ท็อป) */}
             <Link
               href="/post"
               className="hidden md:inline-flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-full shadow-sm hover:shadow transition active:scale-[.98]"
@@ -231,7 +274,7 @@ export default function Header() {
               <PlusSquare className="w-4 h-4" /> สร้างโพสต์
             </Link>
 
-            {/* Notifications */}
+            {/* ปุ่มแจ้งเตือน + ป๊อปอัปแจ้งเตือน */}
             <div className="relative">
               <button
                 type="button"
@@ -247,6 +290,7 @@ export default function Header() {
                 }}
               >
                 <Bell className="w-5 h-5 text-slate-600" />
+                {/* แสดงตัวเลขถ้ามีแจ้งเตือนค้างอ่าน */}
                 {unreadCount > 0 && (
                   <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-semibold text-white bg-rose-600 rounded-full shadow">
                     {unreadCount}
@@ -260,6 +304,7 @@ export default function Header() {
                   role="dialog"
                   className="absolute right-0 mt-2 w-84 sm:w-96 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden z-50"
                 >
+                  {/* ส่วนหัวของป๊อปอัป */}
                   <div className="px-4 py-2.5 border-b flex items-center justify-between">
                     <div className="font-semibold text-sm">การแจ้งเตือน</div>
                     <button
@@ -271,7 +316,7 @@ export default function Header() {
                     </button>
                   </div>
 
-                  {/* แถบเปิดใช้งานการแจ้งเตือน */}
+                  {/* แถบชวนเปิดสิทธิแจ้งเตือน (ถ้ายังไม่ได้ให้สิทธิ) */}
                   {user && notifSupported && notifPermission !== "granted" && (
                     <div className="px-4 py-3 border-b bg-amber-50 text-amber-800 text-xs flex items-center justify-between gap-3">
                       <div>ต้องเปิดการแจ้งเตือนเพื่อรับข่าวสารแบบเรียลไทม์</div>
@@ -285,14 +330,15 @@ export default function Header() {
                     </div>
                   )}
 
+                  {/* รายการแจ้งเตือน */}
                   <div className="max-h-80 overflow-auto">
                     {notifications.length === 0 && (
                       <div className="p-4 text-sm text-slate-500">ยังไม่มีการแจ้งเตือน</div>
                     )}
 
                     {notifications.map((n) => {
-                      const itemId = n.itemId || n.data?.itemId;
-                      const type = n.type || n.data?.type;
+                      const itemId = n.itemId || n.data?.itemId;        // ลิงก์ไปโพสต์ที่เกี่ยวข้อง
+                      const type = n.type || n.data?.type;               // ประเภทแจ้งเตือน (เช่น "interest")
                       const isInterest = (type === "interest");
                       const bg = !n.read && !n.handled ? "bg-white" : "bg-slate-50";
 
@@ -310,6 +356,8 @@ export default function Header() {
                             <div className="flex-1">
                               <div className="text-sm font-medium">{n.title || "การแจ้งเตือน"}</div>
                               <div className="text-xs text-slate-600 mt-0.5">{n.body || ""}</div>
+
+                              {/* ปุ่ม “ดูโพสต์” แบบลิงก์ (หยุดบับเบิลเพื่อไม่ยิง onClick พาไปซ้ำ) */}
                               {itemId && (
                                 <div className="mt-1 text-xs">
                                   รายการ:{" "}
@@ -318,11 +366,14 @@ export default function Header() {
                                   </a>
                                 </div>
                               )}
+
+                              {/* เวลาแจ้งเตือน */}
                               <div className="text-[11px] text-slate-400 mt-1">
                                 {n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString("th-TH") : ""}
                               </div>
                             </div>
 
+                            {/* ถ้าเป็นแจ้งเตือน “มีคนสนใจ” และยังไม่ handled → แสดงปุ่มลัด */}
                             {isInterest && !n.handled && (
                               <div className="flex flex-col gap-1">
                                 <button
@@ -354,8 +405,9 @@ export default function Header() {
               )}
             </div>
 
-            {/* Profile */}
+            {/* ส่วนโปรไฟล์ (ยังไม่ล็อกอิน / ล็อกอินแล้ว) */}
             {!user ? (
+              // ยังไม่ล็อกอิน → ปุ่มไป Login/Register
               <div className="hidden md:flex items-center gap-2">
                 <Link href="/login" className="px-3 py-2 rounded-full text-sm hover:bg-slate-50">🔑 เข้าสู่ระบบ</Link>
                 <Link
@@ -366,6 +418,7 @@ export default function Header() {
                 </Link>
               </div>
             ) : (
+              // ล็อกอินแล้ว → ปุ่มรูปโปรไฟล์ + เมนูดรอปดาวน์
               <div className="relative">
                 <button
                   type="button"
@@ -392,6 +445,7 @@ export default function Header() {
 
                 {profileOpen && (
                   <div className="absolute right-0 mt-2 w-60 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden z-50">
+                    {/* ส่วนหัวในเมนูโปรไฟล์ (ภาพ+ชื่อ+อีเมล) */}
                     <div className="p-4 border-b">
                       <div className="flex items-center gap-3">
                         <Image
@@ -408,6 +462,7 @@ export default function Header() {
                       </div>
                     </div>
 
+                    {/* เมนูภายในโปรไฟล์ */}
                     <nav className="p-2">
                       <Link href="/profile" className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-slate-50 text-sm">
                         <User className="w-4 h-4 text-slate-500" /> โปรไฟล์
@@ -435,7 +490,7 @@ export default function Header() {
         </div>
       </div>
 
-      {/* Mobile drawer (เมนูเพิ่มเติม) */}
+      {/* เมนูมือถือ (drawer ด้านล่างแถบหัว) */}
       <div className={`md:hidden ${mobileOpen ? "block" : "hidden"} border-t border-slate-100 bg-white`}>
         <div className="max-w-7xl mx-auto px-4 py-3 space-y-1">
           <Link href="/post" onClick={() => setMobileOpen(false)}
@@ -444,6 +499,7 @@ export default function Header() {
           </Link>
 
           {!user ? (
+            // เมนูสำหรับผู้ไม่ได้ล็อกอิน
             <div className="flex items-center gap-2">
               <Link href="/login" onClick={() => setMobileOpen(false)} className="flex-1 px-3 py-2 rounded-xl text-sm hover:bg-slate-50">
                 🔑 เข้าสู่ระบบ
@@ -453,6 +509,7 @@ export default function Header() {
               </Link>
             </div>
           ) : (
+            // เมนูสำหรับผู้ที่ล็อกอินแล้ว
             <>
               <Link href="/profile" onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded-xl hover:bg-slate-50 text-sm">
                 <User className="inline w-4 h-4 mr-2 text-slate-500" /> โปรไฟล์

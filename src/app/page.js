@@ -1,4 +1,18 @@
 "use client";
+/**
+ * HomePage (Client Component)
+ * ---------------------------------------------------------
+ * โครงหลัก:
+ *  - Utilities: formatTimeAgo() แปลงเวลาเป็นข้อความอ่านง่าย
+ *  - UI: SpriteOverlay หน้ากากโหลด (sprite animation)
+ *  - Main: HomePage จัดการ state, effects, และ UI ทั้งโหมด Guest/Logged-in
+ *
+ * แนวทาง:
+ *  - แยกเส้นทางข้อมูลตามสถานะผู้ใช้ (Guest → โพสต์ยอดนิยม, Logged-in → ฟีดทั้งหมด)
+ *  - ใช้ Optimistic UI ตอนเพิ่ม/ลบ “รายการโปรด” ให้ตอบสนองไว
+ *  - ใช้ useMemo ลดงานคำนวณซ้ำ (หมวดหมู่ และผลกรอง/ค้นหา/เรียง)
+ *  - ใส่ a11y (aria-*) และเคารพ prefers-reduced-motion
+ */
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
@@ -6,30 +20,39 @@ import Header from "@/components/Header";
 import ChatSidebar from "@/components/ChatSidebar";
 import Footer from "@/components/Footer";
 
+// ฟังก์ชันคุยกับ Firebase (Auth/DB): รวมไว้ที่เดียวให้เรียกใช้ง่าย
 import {
-  authStateHandler,
-  getUserProfile,
-  loadItems,
-  getPopularItems,
-  watchlistListener,
-  removeFromWatchlist,
+  authStateHandler,     // เฝ้าสถานะล็อกอิน/ออก → อัปเดต user แบบเรียลไทม์
+  getUserProfile,       // ดึงโปรไฟล์เจ้าของโพสต์ (username, profilePic)
+  loadItems,            // โหลดโพสต์ทั้งหมด (ใช้เมื่อ Logged-in)
+  getPopularItems,      // โหลด “โพสต์ยอดนิยม” (ใช้เมื่อ Guest)
+  watchlistListener,    // เฝ้าฟัง “รายการโปรด” ของผู้ใช้แบบเรียลไทม์
+  removeFromWatchlist,  // เอาโพสต์ออกจากรายการโปรด
 } from "@/firebase/functions";
 
-import { motion } from "framer-motion";
-import { Heart, MessageSquare, Share2, Search, Flame, Crown } from "lucide-react";
-import StatusChip from "@/components/StatusChip";
+// ไลบรารี UI
+import { motion } from "framer-motion"; // ทำแอนิเมชันการ์ด/เลย์เอาต์ให้ลื่นตา
+import { Heart, MessageSquare, Share2, Search, Flame, Crown } from "lucide-react"; // ไอคอน
+import StatusChip from "@/components/StatusChip"; // ป้ายสถานะโพสต์ (available/…)
 
-/* ✅ นำเข้ารูปสไปรต์แบบ static import ให้ Next สร้าง URL ที่ถูกต้องเสมอ */
+/** นำเข้ารูปสไปรต์แบบ static ให้ Next.js จัดการ URL/แคชให้อัตโนมัติ */
 import blinkPng from "@/../public/sprites/blink.png";
 import walkPng from "@/../public/sprites/walk.png";
 
-/* ---------- util: time ago ---------- */
+/* ------------------------------------------------------------------ */
+/* Utility: แปลงเวลาให้อ่านง่าย                                       */
+/* ------------------------------------------------------------------ */
+/**
+ * รับเวลา (Firestore Timestamp/number/string) → คืนข้อความเช่น "5 นาทีที่แล้ว"
+ * ป้องกัน error ทุกกรณี (คืน "ไม่ทราบเวลา") เพื่อไม่ให้ UI พัง
+ */
 function formatTimeAgo(ts) {
   try {
     const d =
-      ts?.toDate?.() ??
+      ts?.toDate?.() ?? // รองรับ Firestore Timestamp
       (typeof ts === "number" || typeof ts === "string" ? new Date(ts) : null);
     if (!d) return "ไม่ทราบเวลา";
+
     const s = Math.floor((Date.now() - d.getTime()) / 1000);
     if (s < 60) return "ไม่กี่วินาทีที่แล้ว";
     if (s < 3600) return `${Math.floor(s / 60)} นาทีที่แล้ว`;
@@ -40,11 +63,18 @@ function formatTimeAgo(ts) {
   }
 }
 
-/* ---------- NEW: Sprite Overlay (หน้าโหลดของเพจนี้) ---------- */
+/* ------------------------------------------------------------------ */
+/* UI: SpriteOverlay — หน้ากากโหลดทั้งหน้า (sprite animation)         */
+/* ------------------------------------------------------------------ */
+/**
+ * @param {boolean} show     เปิด/ปิด overlay
+ * @param {"blink"|"walk"} variant   เลือกสไตล์สไปรต์ (Guest → blink, Logged-in → walk)
+ * เทคนิค: ใช้ sprite sheet 3 เฟรมแนวนอน ขยับ background-position ให้เหมือนภาพเคลื่อนไหว
+ */
 function SpriteOverlay({ show, variant = "blink" }) {
   if (!show) return null;
 
-  /* URL ของรูปจาก static import (ถ้านำเข้าไม่สำเร็จจะ fallback ไปพาธ public) */
+  // เลือก src จาก static import; ถ้าไม่สำเร็จให้ fallback ไปพาธ public
   const src =
     variant === "walk"
       ? (walkPng && walkPng.src) || "/sprites/walk.png"
@@ -52,7 +82,7 @@ function SpriteOverlay({ show, variant = "blink" }) {
 
   return (
     <div
-      aria-busy="true"
+      aria-busy="true" // a11y: ระบุว่ากำลังดำเนินการโหลด
       style={{
         position: "fixed",
         inset: 0,
@@ -63,18 +93,18 @@ function SpriteOverlay({ show, variant = "blink" }) {
       }}
     >
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-        {/* ใช้ backgroundImage จาก URL ที่ได้จาก static import */}
+        {/* กล่องแสดงสไปรต์: เลื่อน bg-position เพื่อไล่เฟรม */}
         <div
           className={`sprite ${variant === "walk" ? "is-walk" : "is-blink"}`}
           style={{
-            width: "256px",               // ปรับขนาดโชว์ได้
+            width: "256px",
             height: "384px",
             backgroundImage: `url(${src})`,
             backgroundRepeat: "no-repeat",
-            backgroundSize: "300% 100%",  // 3 เฟรมเรียงแนวนอน
+            backgroundSize: "300% 100%", // 3 เฟรมแนวนอน → กว้าง 300%
             backgroundPosition: "0 0",
-            imageRendering: "pixelated",
-            willChange: "background-position",
+            imageRendering: "pixelated",  // ให้พิกเซลคม
+            willChange: "background-position", // hint ประสิทธิภาพ
           }}
         />
         <p style={{ color: "white", opacity: 0.9, fontSize: 14, letterSpacing: ".02em", margin: 0 }}>
@@ -82,7 +112,7 @@ function SpriteOverlay({ show, variant = "blink" }) {
         </p>
       </div>
 
-      {/* แค่ keyframes + ผูกคลาสสำหรับอนิเมชัน */}
+      {/* กำหนด keyframes ของอนิเมชัน และโหมดลดการเคลื่อนไหว */}
       <style jsx>{`
         @keyframes blinkSteps {
           from { background-position-x: 0%; }
@@ -96,6 +126,7 @@ function SpriteOverlay({ show, variant = "blink" }) {
         }
         .is-blink { animation: blinkSteps .39s steps(3) infinite; }
         .is-walk  { animation: walkHold .6s linear infinite; }
+
         @media (prefers-reduced-motion: reduce) {
           .is-blink, .is-walk { animation: none !important; }
         }
@@ -104,35 +135,42 @@ function SpriteOverlay({ show, variant = "blink" }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Main: HomePage                                                     */
+/* ------------------------------------------------------------------ */
 export default function HomePage() {
+  /* --------------------------- State --------------------------- */
+  // โพสต์ทั้งหมด (แสดงเมื่อ Logged-in)
   const [items, setItems] = useState([]);
+  // ผู้ใช้ปัจจุบัน (null = Guest)
   const [user, setUser] = useState(null);
+  // การเปิดแชท: คุมคู่สนทนาและสถานะเปิด/ปิด
   const [chatTo, setChatTo] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
 
+  // สถานะโหลด: ฟีด (Logged-in) / โพสต์ยอดนิยม (Guest)
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState(""); // ใช้ค้นหาในหน้านี้ (เฉพาะล็อกอิน)
-  const [activeFilter, setActiveFilter] = useState("all");
-  const [sortBy, setSortBy] = useState("newest");
-
-  // ⭐ Popular (guest)
   const [popular, setPopular] = useState([]);
   const [loadingPopular, setLoadingPopular] = useState(true);
 
-  // ✅ watchlist ของผู้ใช้ (id ชุด Set)
+  // ค้นหา/กรอง/เรียง
+  const [query, setQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("newest"); // "newest" หรือ "oldest"
+
+  // รายการโปรด: เก็บเป็น Set เพื่อเช็ค has(id) ได้เร็ว
   const [favIds, setFavIds] = useState(new Set());
 
-  /* ---------- auth ---------- */
+  /* ------------------------ Side Effects ----------------------- */
+  // 1) เฝ้าสถานะล็อกอินแบบเรียลไทม์: mount → subscribe, unmount → unsubscribe
   useEffect(() => {
     const unsub = authStateHandler?.(setUser);
     return () => {
-      try {
-        typeof unsub === "function" && unsub();
-      } catch {}
+      try { typeof unsub === "function" && unsub(); } catch {}
     };
   }, []);
 
-  // subscribe watchlist เมื่อ login
+  // 2) เฝ้าฟังรายการโปรด (เมื่อมี user); ถ้าไม่มี user ให้เคลียร์
   useEffect(() => {
     if (!user) {
       setFavIds(new Set());
@@ -140,21 +178,21 @@ export default function HomePage() {
     }
     const unsub = watchlistListener(setFavIds);
     return () => {
-      try {
-        unsub && unsub();
-      } catch {}
+      try { unsub && unsub(); } catch {}
     };
   }, [user]);
 
-  /* ---------- load data ---------- */
+  // 3) โหลดข้อมูลตามโหมดผู้ใช้ (Guest/Logged-in)
   useEffect(() => {
     async function run() {
       if (!user) {
-        // Guest: โหลดโพสยอดนิยม
+        /* ---------------- โหมด Guest: โพสต์ยอดนิยม ---------------- */
         setLoadingPopular(true);
         try {
-          // ดึงมาเผื่อกรองค่าศูนย์/ติดลบก่อน แล้วค่อยตัด 10
+          // ดึง 20 รายการก่อนเพื่อกรอง/เรียงแล้วตัด Top 10
           const top = await getPopularItems(20);
+
+          // เติมโปรไฟล์ + ปรับค่า watchCount ให้ปลอดภัย (ไม่ติดลบ)
           const enriched = await Promise.all(
             (top || []).map(async (it) => {
               const raw =
@@ -164,6 +202,7 @@ export default function HomePage() {
                   ? it.watchlistCount
                   : 0;
               const safeCount = Math.max(0, raw);
+
               try {
                 const profile = await getUserProfile(it.user_id);
                 return {
@@ -174,6 +213,7 @@ export default function HomePage() {
                   watchCount: safeCount,
                 };
               } catch {
+                // ดึงโปรไฟล์พลาด → ใส่ค่า fallback เพื่อไม่ให้ UI พัง
                 return {
                   ...it,
                   profileUsername: "ไม่ระบุชื่อ",
@@ -185,7 +225,7 @@ export default function HomePage() {
             })
           );
 
-          // ✅ กรองเฉพาะโพสที่หัวใจ > 0 แล้วเลือก Top 10
+          // คัดเฉพาะโพสต์ที่มีการ “บันทึกเป็นรายการโปรด” > 0 → เรียงมาก→น้อย → ตัด 10 อันดับ
           const top10 = enriched
             .filter((x) => x.watchCount > 0)
             .sort((a, b) => b.watchCount - a.watchCount)
@@ -196,7 +236,7 @@ export default function HomePage() {
           setLoadingPopular(false);
         }
       } else {
-        // Logged-in: โหลดฟีดทั้งหมด
+        /* --------------- โหมด Logged-in: ฟีดทั้งหมด ---------------- */
         setLoading(true);
         loadItems()
           .then(async (data) => {
@@ -222,86 +262,104 @@ export default function HomePage() {
             );
             setItems(enriched);
           })
-          .catch(() => setItems([]))
+          .catch(() => setItems([])) // โหลดพลาด → แสดงสถานะว่าง
           .finally(() => setLoading(false));
       }
     }
     run();
   }, [user]);
 
-  /* ---------- toggle favorite ---------- */
+  /* ------------------------- Handlers -------------------------- */
+  /**
+   * toggleFavorite: เพิ่ม/ลบ “รายการโปรด”
+   * - บังคับให้ล็อกอินก่อน
+   * - ใช้ Optimistic UI: ปรับ state ให้ผู้ใช้เห็นทันที แล้วค่อยยิงคำสั่งจริงที่ Firebase
+   * - หมายเหตุ: ถ้าต้องการความเข้มขึ้น อาจเพิ่ม rollback เมื่อ request ล้มเหลว
+   */
   async function toggleFavorite(itemId, isFav) {
     if (!user) return alert("กรุณาเข้าสู่ระบบก่อนบันทึก");
 
+    // อัปเดตหน้าจอทันที (ไม่รอเครือข่าย)
     setFavIds((prev) => {
       const next = new Set(prev);
       isFav ? next.delete(itemId) : next.add(itemId);
       return next;
     });
 
+    // ยิงคำสั่งจริงไปหลังบ้าน
     if (isFav) {
       await removeFromWatchlist(itemId);
     } else {
+      // dynamic import เพื่อลดขนาด bundle แรก (โหลดเมื่อจำเป็น)
       const { addToWatchlist } = await import("@/firebase/functions");
       await addToWatchlist(itemId);
     }
   }
 
-  /* ---------- categories + visible items (logged-in) ---------- */
+  /* -------------------------- Memo ----------------------------- */
+  // หมวดหมู่ (คงที่) — ใช้ useMemo เพื่อไม่สร้างอาร์เรย์ใหม่ทุกครั้ง
   const categories = useMemo(
     () => [
-      { key: "all", label: "ทั้งหมด" },
-      { key: "electronics", label: "อิเล็กทรอนิกส์" },
-      { key: "clothes", label: "เสื้อผ้า" },
-      { key: "home", label: "บ้าน & เฟอร์นิเจอร์" },
-      { key: "books", label: "หนังสือ" },
-      { key: "hobby", label: "งานอดิเรก" },
-      { key: "other", label: "อื่น ๆ" },
+      { key: "all",          label: "ทั้งหมด" },
+      { key: "electronics",  label: "อิเล็กทรอนิกส์" },
+      { key: "clothes",      label: "เสื้อผ้า" },
+      { key: "home",         label: "บ้าน & เฟอร์นิเจอร์" },
+      { key: "books",        label: "หนังสือ" },
+      { key: "hobby",        label: "งานอดิเรก" },
+      { key: "other",        label: "อื่น ๆ" },
     ],
     []
   );
 
+  // สร้างลิสต์ที่ “ควรแสดง” จาก items โดยพิจารณา: หมวด, คำค้น, การเรียง
   const visibleItems = useMemo(() => {
-    let list = (items || []).slice();
+    let list = (items || []).slice(); // สำเนาเพื่อไม่แก้ state ต้นฉบับ
 
+    // 1) กรองตามหมวด (ถ้าไม่ใช่ all)
     if (activeFilter !== "all") {
       list = list.filter((it) =>
         (it?.category || "").toLowerCase().includes(activeFilter)
       );
     }
 
+    // 2) กรองตามคำค้นหา (มองหลายฟิลด์)
     if (query.trim()) {
       const q = query.trim().toLowerCase();
       list = list.filter((it) => {
-        const give = (it?.item_give || "").toLowerCase();
-        const recv = (it?.item_receive || "").toLowerCase();
-        const desc = (it?.description || "").toLowerCase();
+        const give  = (it?.item_give || "").toLowerCase();
+        const recv  = (it?.item_receive || "").toLowerCase();
+        const desc  = (it?.description || "").toLowerCase();
         const uname = (it?.profileUsername || "").toLowerCase();
         return give.includes(q) || recv.includes(q) || desc.includes(q) || uname.includes(q);
       });
     }
 
+    // 3) เรียงตามเวลา (รองรับ Firestore Timestamp)
     list.sort((a, b) => {
       const ta = a?.createdAt?.toDate?.() || new Date(0);
       const tb = b?.createdAt?.toDate?.() || new Date(0);
       return sortBy === "newest" ? +tb - +ta : +ta - +tb;
     });
+
     return list;
   }, [items, activeFilter, query, sortBy]);
 
-  /* ---------- NEW: สถานะกำลังโหลดของหน้านี้ ---------- */
-  const isBusy = !user ? loadingPopular : loading; // guest ใช้ loadingPopular, logged-in ใช้ loading
+  /* ------------------------- Derived --------------------------- */
+  // สถานะโหลดรวมของหน้า: Guest ใช้ loadingPopular, Logged-in ใช้ loading
+  const isBusy = !user ? loadingPopular : loading;
 
-  /* ---------- Guest view: only Top 10 with hearts > 0 ---------- */
+  /* --------------------------- Render -------------------------- */
+  // โหมด Guest: แสดง “โพสต์ยอดนิยม 10 อันดับ”
   if (!user) {
     return (
       <>
-        {/* Overlay หน้าโหลดของเพจนี้ (ใช้ Blink สำหรับ Guest) */}
+        {/* หน้ากากโหลด (สไปรต์แบบกระพริบ) */}
         <SpriteOverlay show={isBusy} variant="blink" />
 
         <Header />
         <main className="min-h-screen bg-gradient-to-b from-rose-50 via-white to-sky-50 pb-24">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+            {/* ส่วนหัวคำอธิบาย */}
             <section className="mb-8">
               <div className="flex items-center gap-2 text-rose-600">
                 <Flame className="w-5 h-5" />
@@ -309,32 +367,36 @@ export default function HomePage() {
               </div>
               <div className="mt-1 flex items-center gap-3">
                 <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
-                  โพสยอดนิยม Top 10
+                  โพสต์ยอดนิยม 10 อันดับ
                 </h1>
                 <span className="hidden md:inline-flex items-center gap-1 text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full text-sm">
                   <Crown className="w-4 h-4" /> จัดอันดับจากจำนวน “บันทึกเป็นรายการโปรด”
                 </span>
               </div>
               <p className="mt-2 text-slate-600 text-sm md:text-base">
-                เข้าสู่ระบบเพื่อกดบันทึก/แชทกับผู้โพสต์ และดูฟีดทั้งหมด
+                เข้าสู่ระบบเพื่อบันทึกเป็นรายการโปรด/แชทกับผู้โพสต์ และดูฟีดทั้งหมด
               </p>
             </section>
 
+            {/* เนื้อหาหลัก: แสดงตามสถานะโหลด/มีข้อมูล/ไม่มีข้อมูล */}
             {loadingPopular ? (
+              // ระหว่างโหลด → แสดง Skeleton 10 ใบ
               <div className="grid gap-5 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
                 {Array.from({ length: 10 }).map((_, i) => (
                   <div key={i} className="rounded-2xl h-56 bg-white border border-slate-200 shadow animate-pulse" />
                 ))}
               </div>
             ) : popular.length === 0 ? (
+              // ไม่มีข้อมูลหลังกรอง
               <div className="p-8 bg-white border border-slate-200 rounded-2xl text-center shadow">
-                ยังไม่มีโพสยอดนิยมที่มีหัวใจมากกว่า 0
+                ยังไม่มีโพสต์ยอดนิยมที่มีการบันทึกเป็นรายการโปรดมากกว่า 0
               </div>
             ) : (
+              // มีข้อมูล → การ์ดรายการยอดนิยม
               <div className="grid gap-5 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
                 {popular.map((it, idx) => {
                   const img = it?.item_images?.[0] || "/img/default-placeholder.jpg";
-                  const count = Number(it.watchCount ?? 0); // > 0 เสมอจากการกรอง
+                  const count = Number(it.watchCount ?? 0); // ผ่านการกรองให้ > 0 มาแล้ว
 
                   return (
                     <Link
@@ -342,7 +404,7 @@ export default function HomePage() {
                       href={`/item?id=${it.id}`}
                       className="group relative overflow-hidden rounded-2xl bg-white border border-slate-200 shadow hover:shadow-xl transition"
                     >
-                      {/* rank ribbon */}
+                      {/* ริบบิ้นแสดง “อันดับ” */}
                       <div className="absolute -left-10 -top-10 rotate-[-35deg] z-20">
                         <div
                           className={`px-8 py-3 text-white text-sm font-bold shadow-lg ${
@@ -357,6 +419,7 @@ export default function HomePage() {
                         </div>
                       </div>
 
+                      {/* รูปหลักของโพสต์ */}
                       <div className="aspect-[4/3] bg-slate-50 overflow-hidden">
                         <img
                           src={img}
@@ -367,6 +430,7 @@ export default function HomePage() {
                         />
                       </div>
 
+                      {/* ข้อมูลใต้รูป */}
                       <div className="p-3">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
@@ -379,12 +443,13 @@ export default function HomePage() {
                         </div>
 
                         <div className="mt-2 text-sm font-semibold text-slate-900 line-clamp-1">
-                          {it?.item_give || "ไม่ระบุ"}
+                          {it?.item_ggive || it?.item_give || "ไม่ระบุ" /* ป้องกันสะกดผิด */ }
                         </div>
                         <div className="mt-1 text-xs text-slate-500 line-clamp-1">
                           โดย {it?.profileUsername || "ไม่ระบุชื่อ"} • {formatTimeAgo(it?.createdAt)}
                         </div>
 
+                        {/* สิ่งที่ต้องการแลก (ถ้ามี) */}
                         {it?.item_receive && (
                           <div className="mt-2 text-[12px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 line-clamp-1">
                             ต้องการแลกกับ: <b>{it.item_receive}</b>
@@ -397,6 +462,7 @@ export default function HomePage() {
               </div>
             )}
 
+            {/* ปุ่มเชิญชวนให้ล็อกอิน */}
             <div className="mt-8 text-center">
               <Link
                 href="/login"
@@ -412,22 +478,22 @@ export default function HomePage() {
     );
   }
 
-  /* ---------- Logged-in view (เหมือนเดิม + Sticky Search) ---------- */
+  /* ----------------------- โหมด Logged-in ---------------------- */
   return (
     <>
-      {/* Overlay หน้าโหลดของเพจนี้ (ใช้ Walk สำหรับ Logged-in) */}
+      {/* หน้ากากโหลด (สไปรต์แบบเดิน) */}
       <SpriteOverlay show={isBusy} variant="walk" />
 
       <Header />
 
       <main className="bg-gradient-to-b from-rose-50 via-white to-sky-50 min-h-screen pb-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 md:pt-6">
-          {/* Sticky Search + Chips */}
+          {/* แถบควบคุมแบบ Sticky: ค้นหา/เรียง/ชิปหมวด (ติดหัวจอ) */}
           <div className="sticky top-16 z-40 -mx-4 px-4 sm:mx-0 sm:px-0 bg-white/85 supports-[backdrop-filter]:bg-white/60 backdrop-blur border-b border-slate-100">
             <div className="py-3 md:py-4">
-              {/* desktop */}
+              {/* เดสก์ท็อป: ควบคุมแสดงครบ */}
               <div className="hidden md:flex items-center gap-3">
-                {/* search */}
+                {/* ค้นหา */}
                 <div className="flex-1">
                   <div className="flex items-center bg-white rounded-2xl shadow px-4 py-2 border border-slate-200 focus-within:ring-2 focus-within:ring-rose-300 transition">
                     <Search className="w-4 h-4 text-slate-400 mr-2" aria-hidden="true" />
@@ -454,7 +520,7 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                {/* sort */}
+                {/* เรียงลำดับ */}
                 <div>
                   <label htmlFor="sort-select" className="sr-only">
                     เรียงลำดับ
@@ -470,7 +536,7 @@ export default function HomePage() {
                   </select>
                 </div>
 
-                {/* chips */}
+                {/* ชิปหมวดหมู่ */}
                 <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full">
                   {categories.map((c) => (
                     <button
@@ -489,9 +555,10 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* mobile */}
+              {/* มือถือ: เรียงองค์ประกอบใหม่ให้เหมาะกับหน้าจอเล็ก */}
               <div className="md:hidden flex flex-col gap-2">
                 <div className="flex items-center gap-2">
+                  {/* ค้นหา */}
                   <div className="flex-1">
                     <div className="flex items-center bg-white rounded-2xl shadow px-3 py-2 border border-slate-200 focus-within:ring-2 focus-within:ring-rose-300 transition">
                       <Search className="w-4 h-4 text-slate-400 mr-2" aria-hidden="true" />
@@ -518,6 +585,7 @@ export default function HomePage() {
                     </div>
                   </div>
 
+                  {/* เรียงลำดับ */}
                   <div className="shrink-0">
                     <label htmlFor="sort-select-m" className="sr-only">
                       เรียงลำดับ
@@ -534,6 +602,7 @@ export default function HomePage() {
                   </div>
                 </div>
 
+                {/* ชิปหมวดเลื่อนแนวนอน */}
                 <div className="relative">
                   <div className="pointer-events-none absolute left-0 top-0 h-full w-6 bg-gradient-to-r from-white to-transparent" />
                   <div className="pointer-events-none absolute right-0 top-0 h-full w-6 bg-gradient-to-l from-white to-transparent" />
@@ -558,35 +627,38 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Feed */}
+          {/* ฟีดโพสต์ */}
           <section className="space-y-6 mt-6">
             {loading ? (
+              // ระหว่างโหลด → Skeleton
               <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} className="p-4 bg-white rounded-2xl shadow animate-pulse h-56" />
                 ))}
               </div>
             ) : visibleItems.length === 0 ? (
+              // ไม่มีผลลัพธ์หลังกรอง/ค้นหา
               <div className="text-center py-20">
                 <img src="/img/empty-illustration.svg" alt="empty" className="w-48 mx-auto mb-4 opacity-60" />
                 <h3 className="text-lg font-semibold text-slate-700">ยังไม่มีสินค้าในหมวดนี้</h3>
                 <p className="text-sm text-slate-500 mt-2">ลองเปลี่ยนตัวกรองหรือค้นหาคำอื่น</p>
               </div>
             ) : (
+              // การ์ดโพสต์จริง
               <motion.div layout className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 items-stretch">
                 {visibleItems.map((item) => {
-                  const imageGive = item?.item_images?.[0] || "/img/default-placeholder.jpg";
+                  const imageGive    = item?.item_images?.[0] || "/img/default-placeholder.jpg";
                   const imageReceive = item?.item_wanted_image || "/img/default-placeholder.jpg";
-                  const isFav = favIds.has(item.id);
+                  const isFav        = favIds.has(item.id);
 
                   return (
                     <motion.article
                       layout
                       key={item.id}
-                      whileHover={{ y: -4 }}
+                      whileHover={{ y: -4 }} // ขยับนิดเมื่อโฮเวอร์
                       className="group h-full flex flex-col bg-white rounded-2xl border border-slate-200 shadow hover:shadow-xl transition overflow-hidden"
                     >
-                      {/* header */}
+                      {/* ส่วนหัว: โปรไฟล์ผู้โพสต์ + เวลา + สถานะ + หมวดหมู่ */}
                       <div className="p-4 flex items-center gap-3">
                         <img
                           src={item?.profilePic || "/images/profile-placeholder.jpg"}
@@ -608,7 +680,7 @@ export default function HomePage() {
                         </div>
                       </div>
 
-                      {/* images */}
+                      {/* รูปของ “ให้” และ “อยากรับ” → คลิกไปหน้ารายละเอียด */}
                       <Link href={`/item?id=${item.id}`} className="px-4">
                         <div className="grid grid-cols-2 gap-3 text-center">
                           <div className="w-full rounded-lg bg-slate-50 border overflow-hidden aspect-[4/3]">
@@ -632,7 +704,7 @@ export default function HomePage() {
                         </div>
                       </Link>
 
-                      {/* text */}
+                      {/* เนื้อหา (ชื่อ + คำอธิบายสั้น) */}
                       <div className="px-4 pt-3">
                         <div className="text-sm font-medium text-slate-700 line-clamp-1">
                           {item?.item_give || "ไม่ระบุ"}
@@ -642,7 +714,7 @@ export default function HomePage() {
                         </p>
                       </div>
 
-                      {/* footer */}
+                      {/* ปุ่มการกระทำ: ดูรายละเอียด / รายการโปรด / แชท / แชร์ */}
                       <div className="px-4 py-3 mt-auto flex items-center justify-between">
                         <Link
                           href={`/item?id=${item.id}`}
@@ -652,7 +724,7 @@ export default function HomePage() {
                         </Link>
 
                         <div className="flex items-center gap-2">
-                          {/* ปุ่มบันทึก (ไม่ให้กดโพสต์ตัวเอง) */}
+                          {/* รายการโปรด: ไม่แสดงถ้าเป็นโพสต์ของตัวเอง */}
                           {(!user || user.uid !== item.user_id) && (
                             <button
                               className={`px-2.5 py-2 rounded-full border transition ${
@@ -666,7 +738,7 @@ export default function HomePage() {
                             </button>
                           )}
 
-                          {/* แชท */}
+                          {/* แชท: ไม่แสดงถ้าเป็นโพสต์ของตัวเอง */}
                           {user && user.uid !== item.user_id && (
                             <button
                               className="px-2.5 py-2 rounded-full bg-white border text-slate-600 hover:bg-slate-50 transition"
@@ -680,7 +752,7 @@ export default function HomePage() {
                             </button>
                           )}
 
-                          {/* แชร์ */}
+                          {/* แชร์: ใช้ Web Share API ถ้ามี; ถ้าไม่มีให้คัดลอกลิงก์ */}
                           <button
                             className="px-2.5 py-2 rounded-full bg-white border text-slate-600 hover:bg-slate-50 transition"
                             title="แชร์"
@@ -692,7 +764,7 @@ export default function HomePage() {
                                     text: item?.description || "",
                                     url: typeof window !== "undefined" ? window.location.href : "",
                                   })
-                                  .catch(() => {});
+                                  .catch(() => {}); // ผู้ใช้ยกเลิก → เงียบ
                               } else if (typeof window !== "undefined" && navigator.clipboard?.writeText) {
                                 navigator.clipboard.writeText(window.location.href);
                                 alert("คัดลอกลิงก์แล้ว");
@@ -712,8 +784,14 @@ export default function HomePage() {
         </div>
       </main>
 
-      <ChatSidebar toUserId={chatTo || undefined} isOpen={chatOpen} onClose={() => setChatOpen(false)} />
+      {/* แถบแชทด้านข้าง: เปิดเมื่อกดปุ่มแชทบนการ์ด */}
+      <ChatSidebar
+        toUserId={chatTo || undefined}
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+      />
       <Footer />
     </>
   );
 }
+

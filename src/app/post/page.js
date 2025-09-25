@@ -1,8 +1,20 @@
 "use client";
+/**
+ * PostItemUI (Client Component)
+ * ---------------------------------------------------------
+ * หน้าสร้าง “โพสต์แลกเปลี่ยนสิ่งของ”
+ * งานหลัก:
+ *  - ตรวจสอบสถานะล็อกอิน (Firebase Auth) และบังคับให้ล็อกอินก่อนโพสต์
+ *  - รับข้อมูลฟอร์ม + รูปหลายรูป (ของที่นำมาแลก) + รูป 1 รูป (ของที่ต้องการแลก)
+ *  - อัปโหลดรูปขึ้น Firebase Storage → ได้ URL
+ *  - สร้างเอกสารโพสต์ใหม่ใน Firestore (items)
+ * UX:
+ *  - แสดงตัวอย่างรูป (preview), ปุ่มลบรูป, สถานะกำลังโพสต์, และข้อความแจ้งเตือน
+ */
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";   // ✅ เพิ่มเพื่อ redirect
-import { motion } from "framer-motion";
+import { useRouter } from "next/navigation";   // ใช้เปลี่ยนหน้า (redirect) หลังโพสต์เสร็จ
+import { motion } from "framer-motion";         // ทำอนิเมชันเข้า/จาง
 import { Camera, Trash, ImageIcon, Send } from "lucide-react";
 
 import { db, auth, storage } from "@/firebase/config";
@@ -10,14 +22,23 @@ import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { onAuthStateChanged, setPersistence, browserLocalPersistence } from "firebase/auth";
 
+/* สไตล์พื้นฐานของ input/label เพื่อให้โค้ดอ่านง่ายขึ้น */
 const inputBase =
   "w-full p-3 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-pink-300";
 const labelBase = "block text-sm font-semibold text-slate-700 mb-2";
 
-const MAX_MB = 10;
+/* ข้อกำหนดไฟล์รูป */
+const MAX_MB = 10;  // จำกัดขนาดไฟล์ต่อรูป (MB)
 const ALLOW_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"];
 
-/** อัปโหลดรูปขึ้น Storage แล้วคืน downloadURL (รับ uid จากภายนอก) */
+/**
+ * uploadImage(file, folderName, uid)
+ * ---------------------------------------------------------
+ * อัปโหลดรูปขึ้น Firebase Storage แล้วคืนค่า downloadURL
+ * - ตรวจสอบ: ต้องล็อกอินก่อน / ชนิดไฟล์ / ขนาดไฟล์
+ * - ตั้งชื่อไฟล์ให้ปลอดภัย (safeName) + ใส่ timestamp ป้องกันซ้ำ
+ * - แนบ metadata.contentType เพื่อการเสิร์ฟที่ถูกต้อง
+ */
 async function uploadImage(file, folderName, uid) {
   if (!file) return null;
   if (!uid) throw new Error("กรุณาล็อกอินก่อน");
@@ -46,20 +67,22 @@ async function uploadImage(file, folderName, uid) {
     });
     const msg =
       err?.code === "storage/unauthorized"
-        ? "ไม่ได้รับอนุญาตให้อัปโหลด (เช็ค Storage Rules + กด Publish)"
+        ? "ไม่ได้รับอนุญาตให้อัปโหลด (เช็ค Storage Rules แล้วกด Publish)"
         : "อัปโหลดรูปไม่สำเร็จ";
     throw new Error(msg);
   }
 }
 
 export default function PostItemUI() {
-  const router = useRouter();   // ✅ ใช้ router
-  const [user, setUser] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
+  const router = useRouter();                 // ใช้เปลี่ยนหน้าเมื่อโพสต์สำเร็จ
+  const [user, setUser] = useState(null);     // ผู้ใช้ปัจจุบัน (null = ยังไม่ล็อกอิน)
+  const [authReady, setAuthReady] = useState(false); // รอ Auth ให้พร้อมเพื่อเรนเดอร์สถานะได้ถูกต้อง
 
-  const [message, setMessage] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  /* สถานะฟอร์ม/ปุ่มส่ง */
+  const [message, setMessage] = useState("");           // ข้อความแจ้งเตือนผลลัพธ์/ข้อผิดพลาด
+  const [isSubmitting, setIsSubmitting] = useState(false); // กันการกดซ้ำ/โชว์สถานะกำลังโพสต์
 
+  /* ค่าฟอร์มหลัก */
   const [formData, setFormData] = useState({
     itemGive: "",
     itemReceive: "",
@@ -69,11 +92,17 @@ export default function PostItemUI() {
     customCategory: "",
   });
 
-  const [itemImages, setItemImages] = useState([]); // Files[]
-  const [itemWantedImage, setItemWantedImage] = useState(null); // File
-  const [previews, setPreviews] = useState([]); // object URLs
+  /* รูปที่อัปโหลดจากผู้ใช้ (ไฟล์จริง) */
+  const [itemImages, setItemImages] = useState([]);      // รูปของ “สิ่งที่นำมาแลก” (หลายรูป)
+  const [itemWantedImage, setItemWantedImage] = useState(null); // รูป “สิ่งที่ต้องการแลก” (1 รูป)
+  const [previews, setPreviews] = useState([]);          // URL สำหรับพรีวิว (สร้างจาก File object)
 
-  // รอสถานะ auth ให้พร้อมก่อน
+  /**
+   * ฟังสถานะการล็อกอิน (Auth)
+   * -------------------------------------------------------
+   * - ตั้ง persistence = localStorage (อยู่รอดระหว่างปิด/เปิดเบราว์เซอร์)
+   * - onAuthStateChanged: อัปเดต state user แบบเรียลไทม์
+   */
   useEffect(() => {
     setPersistence(auth, browserLocalPersistence).catch(() => {});
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -83,17 +112,28 @@ export default function PostItemUI() {
     return () => unsub();
   }, []);
 
+  /**
+   * สร้าง/ล้าง URL สำหรับแสดงตัวอย่างรูป (ของที่นำมาแลก)
+   * - ใช้ URL.createObjectURL เพื่อพรีวิวไฟล์ท้องถิ่น
+   * - ล้าง (revoke) เมื่อเปลี่ยนภาพ/ออกจากหน้าเพื่อไม่ให้หน่วยความจำค้าง
+   */
   useEffect(() => {
     const urls = itemImages.map((f) => URL.createObjectURL(f));
     setPreviews(urls);
     return () => urls.forEach((u) => URL.revokeObjectURL(u));
   }, [itemImages]);
 
+  /* อัปเดตค่าฟอร์มตามชื่อช่อง (name) */
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  /**
+   * เลือกไฟล์รูป (2 ช่อง)
+   * - #upload-give: เลือกหลายรูปของสิ่งที่นำมาแลก
+   * - #upload-receive-1: เลือกรูปเดียวของสิ่งที่ต้องการแลก
+   */
   const handleFileChange = (e) => {
     const { id, files } = e.target;
     if (id === "upload-give") {
@@ -103,10 +143,12 @@ export default function PostItemUI() {
     }
   };
 
+  /* ลบรูปจากรายการพรีวิว (ตาม index) */
   const removeImageAt = (index) => {
     setItemImages((prev) => prev.filter((_, i) => i !== index));
   };
 
+  /* รีเซ็ตฟอร์มและรูปทั้งหมด */
   const clearAll = () => {
     setFormData({
       itemGive: "",
@@ -121,6 +163,15 @@ export default function PostItemUI() {
     setMessage("");
   };
 
+  /**
+   * ส่งฟอร์มโพสต์
+   * ขั้นตอน:
+   *  1) กันกดซ้ำ / ล้างข้อความเดิม
+   *  2) ตรวจความครบถ้วนของข้อมูล + บังคับแนบรูป
+   *  3) อัปโหลดรูปทั้งหมดขึ้น Storage → ได้ URL
+   *  4) บันทึกเอกสารโพสต์ใหม่ลง Firestore (items)
+   *  5) นำทางกลับหน้าแรก (router.replace("/"))
+   */
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (isSubmitting) return;
@@ -131,16 +182,19 @@ export default function PostItemUI() {
     const { itemGive, itemReceive, description, category, condition, customCategory } = formData;
     const finalCategory = category === "other" ? (customCategory || "").trim() : category;
 
+    // ตรวจความครบถ้วนของฟอร์ม
     if (!itemGive || !itemReceive || !description || !finalCategory || !condition) {
       setMessage("❌ กรุณากรอกข้อมูลให้ครบถ้วน");
       setIsSubmitting(false);
       return;
     }
+    // บังคับให้แนบรูปครบทั้งสองฝั่ง
     if (!itemImages.length || !itemWantedImage) {
       setMessage("❌ กรุณาแนบรูปภาพ");
       setIsSubmitting(false);
       return;
     }
+    // ต้องล็อกอินก่อนโพสต์
     if (!user) {
       setMessage("❌ กรุณาล็อกอินก่อนโพสต์");
       setIsSubmitting(false);
@@ -149,9 +203,8 @@ export default function PostItemUI() {
 
     try {
       const uid = user.uid;
-      console.log("UID for upload =", uid);
 
-      // อัปโหลดรูป
+      /* 3) อัปโหลดรูปทั้งหมด → เก็บ URL */
       const itemImageUrls = [];
       for (const imageFile of itemImages) {
         const url = await uploadImage(imageFile, `items/${uid}`, uid);
@@ -159,7 +212,7 @@ export default function PostItemUI() {
       }
       const wantedImageURL = await uploadImage(itemWantedImage, `items/${uid}/wanted`, uid);
 
-      // เขียน Firestore
+      /* 4) สร้างเอกสารโพสต์ใน Firestore */
       await addDoc(collection(db, "items"), {
         item_give: formData.itemGive,
         item_receive: formData.itemReceive,
@@ -173,8 +226,11 @@ export default function PostItemUI() {
         status: "available",
       });
 
-      // ✅ โพสต์สำเร็จ → กลับไปหน้าแรก
-      router.replace("/");   // ใช้ push("/") ถ้าอยากให้กด back กลับมาหน้านี้ได้
+      /* 5) โพสต์สำเร็จ → กลับหน้าแรก
+       * - ใช้ replace() เพื่อไม่ให้ผู้ใช้กด Back แล้วกลับมาซ้ำโพสต์เดิม
+       *   (ถ้าต้องการให้กดย้อนกลับได้ ให้เปลี่ยนเป็น router.push("/"))
+       */
+      router.replace("/");
 
     } catch (e) {
       console.error(e);
@@ -184,9 +240,11 @@ export default function PostItemUI() {
     }
   };
 
+  /* ------------------------------------ UI ------------------------------------ */
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-rose-50 py-8 px-4 sm:py-12 sm:px-6">
       <div className="max-w-6xl w-full mx-auto">
+        {/* เงื่อนไขเรนเดอร์ 3 สถานะ: รอ Auth / ยังไม่ล็อกอิน / พร้อมโพสต์ */}
         {!authReady ? (
           <div className="text-center py-24 text-slate-500">กำลังตรวจสอบสถานะผู้ใช้…</div>
         ) : !user ? (
@@ -196,19 +254,22 @@ export default function PostItemUI() {
           </div>
         ) : (
           <>
+            {/* ส่วนหัว (มีอนิเมชันเลื่อนลง/จางเข้า) */}
             <motion.header initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mb-6 md:mb-8">
               <h1 className="text-center text-3xl sm:text-4xl md:text-5xl font-extrabold text-rose-600">โพสต์แลกเปลี่ยนสิ่งของ</h1>
               <p className="mt-2 text-center text-sm sm:text-base text-slate-600">สร้างโพสต์สวย ๆ และค้นหาผู้แลกเปลี่ยนได้ง่าย</p>
             </motion.header>
 
+            {/* ฟอร์มหลัก (มีอนิเมชันจางเข้า) */}
             <motion.form
               onSubmit={handleSubmit}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               className="bg-white rounded-2xl shadow-xl p-4 sm:p-6 grid grid-cols-1 md:grid-cols-3 gap-5 md:gap-6"
             >
-              {/* LEFT: FORM */}
+              {/* LEFT: แบบฟอร์มข้อมูลและปุ่มอัปโหลด */}
               <div className="md:col-span-2 space-y-5 sm:space-y-6">
+                {/* แถวชื่อสิ่งของ (ให้/ต้องการ) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
                   <div>
                     <label className={labelBase}>ชื่อสิ่งของที่นำมาแลก</label>
@@ -233,6 +294,7 @@ export default function PostItemUI() {
                   </div>
                 </div>
 
+                {/* สภาพสินค้า + หมวดหมู่ (รองรับ “อื่น ๆ (กรอกเอง)”) */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
                   <div>
                     <label className={labelBase}>สภาพสินค้า</label>
@@ -252,6 +314,7 @@ export default function PostItemUI() {
                         onChange={handleInputChange}
                         className={inputBase + " appearance-none pr-10"}
                       >
+                        {/* กลุ่มหมวดหมู่หลัก ๆ */}
                         <optgroup label="อิเล็กทรอนิกส์">
                           <option value="electronics:phones">โทรศัพท์ & อุปกรณ์</option>
                           <option value="electronics:computers">คอมพิวเตอร์ & แล็ปท็อป</option>
@@ -291,6 +354,7 @@ export default function PostItemUI() {
                         <option value="other">อื่น ๆ (กรอกเอง)</option>
                       </select>
 
+                      {/* ช่องกรอกหมวดหมู่เอง เมื่อเลือก “อื่น ๆ (กรอกเอง)” */}
                       {formData.category === "other" && (
                         <input
                           name="customCategory"
@@ -304,6 +368,7 @@ export default function PostItemUI() {
                   </div>
                 </div>
 
+                {/* รายละเอียดเพิ่มเติม (ข้อความยาว) */}
                 <div>
                   <label className={labelBase}>รายละเอียดเพิ่มเติม</label>
                   <textarea
@@ -315,7 +380,9 @@ export default function PostItemUI() {
                   />
                 </div>
 
+                {/* ปุ่มเลือกไฟล์ + ปุ่มรีเซ็ต/โพสต์ */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  {/* เลือกหลายรูปของสิ่งที่นำมาแลก */}
                   <button
                     type="button"
                     onClick={() => document.getElementById("upload-give").click()}
@@ -324,6 +391,7 @@ export default function PostItemUI() {
                     <ImageIcon className="w-5 h-5" /> แนบรูปหลายรูป
                   </button>
 
+                  {/* เลือกรูปเดียวของสิ่งที่ต้องการแลก */}
                   <button
                     type="button"
                     onClick={() => document.getElementById("upload-receive-1").click()}
@@ -332,6 +400,7 @@ export default function PostItemUI() {
                     <Camera className="w-4 h-4 text-slate-700" /> แนบรูปที่ต้องการแลก (1 รูป)
                   </button>
 
+                  {/* รีเซ็ต/ส่งฟอร์ม */}
                   <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:items-center sm:ml-auto">
                     <button
                       type="button"
@@ -358,15 +427,17 @@ export default function PostItemUI() {
                   </div>
                 </div>
 
+                {/* แถบข้อความแจ้งเตือน (ผิดพลาด/คำแนะนำ) */}
                 {message && <p className="mt-2 text-center text-sm text-rose-600 font-medium">{message}</p>}
 
-                {/* hidden inputs */}
+                {/* อินพุตไฟล์จริง (ถูกซ่อนไว้) */}
                 <input id="upload-give" type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
                 <input id="upload-receive-1" type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
               </div>
 
-              {/* RIGHT: PREVIEW */}
+              {/* RIGHT: ตัวอย่างโพสต์ + ข้อมูลผู้ใช้ */}
               <aside className="flex flex-col items-stretch gap-4 md:col-span-1">
+                {/* การ์ดพรีวิวรูป */}
                 <div className="bg-gradient-to-br from-white to-rose-50 p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-inner">
                   <h3 className="text-lg font-semibold text-slate-700">ตัวอย่างโพสต์</h3>
                   <p className="text-sm text-slate-500 mt-1">ตรวจสอบภาพและข้อมูลก่อนโพสต์</p>
@@ -392,11 +463,13 @@ export default function PostItemUI() {
                       </div>
                     )}
 
-                    {/* wanted image preview */}
+                    {/* พรีวิว “รูปที่ต้องการแลก” */}
                     <div className="col-span-2 mt-2">
                       <label className="text-sm font-medium text-slate-700">รูปที่ต้องการแลก</label>
                       <div className="mt-2 rounded-xl overflow-hidden bg-slate-50 border border-slate-100">
                         {itemWantedImage ? (
+                          // หมายเหตุ: การเรียก URL.createObjectURL ใน render จะสร้าง URL ใหม่ทุกครั้ง
+                          // ถ้าต้องการประหยัดหน่วยความจำ ควร memoize และ revoke (ดูข้อเสนอแนะด้านล่าง)
                           <img src={URL.createObjectURL(itemWantedImage)} alt="wanted" className="object-cover w-full h-40 sm:h-48" />
                         ) : (
                           <div className="flex items-center justify-center p-5 sm:p-6 text-slate-400">ยังไม่มีรูปที่เลือก</div>
@@ -406,6 +479,7 @@ export default function PostItemUI() {
                   </div>
                 </div>
 
+                {/* การ์ดข้อมูลผู้ใช้ (แสดงอีเมล + วันที่วันนี้) */}
                 <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 text-sm text-slate-600 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div>
@@ -418,6 +492,7 @@ export default function PostItemUI() {
               </aside>
             </motion.form>
 
+            {/* ฟุตเตอร์สั้น ๆ */}
             <footer className="mt-8 text-center text-xs text-slate-400">
               SWAPPO — แพลตฟอร์มแลกเปลี่ยนของคนไทย
             </footer>

@@ -1,5 +1,16 @@
 "use client";
 
+/**
+ * WatchlistPage (Client Component)
+ * ---------------------------------------------------------
+ * หน้ารายการโปรดของผู้ใช้:
+ * - ตรวจสถานะการล็อกอิน (Firebase Auth)
+ * - subscribe รายการโปรดของผู้ใช้แบบเรียลไทม์จาก Firestore
+ * - ดึงรายละเอียดโพสต์ + โปรไฟล์เจ้าของโพสต์มา Merge แสดง
+ * - ลบออกจากรายการโปรดแบบ Optimistic (ลบใน UI ก่อน แล้วค่อยยิงลบจริง)
+ * - แสดง Modal ยืนยันการลบ และ Modal ดูรายละเอียด+แกลเลอรีรูป
+ */
+
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
@@ -16,7 +27,12 @@ import {
 import { onAuthStateChanged } from "firebase/auth";
 import { Trash2, ArrowLeft, ChevronLeft, ChevronRight, Heart } from "lucide-react";
 
-/* ---------- helpers ---------- */
+/* ---------- helpers: ฟังก์ชันช่วยรูปแบบเวลา ---------- */
+/**
+ * แปลง Timestamp/Date เป็นสตริงภาษาไทยแบบอ่านง่าย
+ * - รองรับทั้ง Firestore Timestamp และ Date ปกติ
+ * - กรณีจับ error หรือไม่มีค่า → คืน "ไม่ระบุเวลา"
+ */
 function formatDate(ts) {
   try {
     if (!ts) return "ไม่ระบุเวลา";
@@ -35,14 +51,16 @@ function formatDate(ts) {
 
 export default function WatchlistPage() {
   const router = useRouter();
-  const [userId, setUserId] = useState(null);
-  const [items, setItems] = useState([]); // { id, watchDocId, addedAt, ...itemData, profileUsername, profilePic }
-  const [loading, setLoading] = useState(true);
-  const [confirmRemove, setConfirmRemove] = useState(null); // { watchDocId, title }
-  const [selectedItem, setSelectedItem] = useState(null); // item object for modal
-  const [galleryIndex, setGalleryIndex] = useState(0);
 
-  /* block background scroll when any modal opens */
+  /* ---------- state หลักของหน้า ---------- */
+  const [userId, setUserId] = useState(null);       // uid ของผู้ใช้ที่ล็อกอิน (หรือ null ถ้ายังไม่ล็อกอิน)
+  const [items, setItems] = useState([]);           // รายการโปรด: รวมข้อมูล watchlist + item + profile ของเจ้าของโพสต์
+  const [loading, setLoading] = useState(true);     // สถานะโหลดข้อมูลเพื่อแสดง skeleton
+  const [confirmRemove, setConfirmRemove] = useState(null); // เก็บข้อมูลรายการที่กำลังจะลบ (แสดงใน modal)
+  const [selectedItem, setSelectedItem] = useState(null);   // รายการที่เปิดดูรายละเอียดใน modal
+  const [galleryIndex, setGalleryIndex] = useState(0);      // index รูปในแกลเลอรีของ modal
+
+  /* ---------- จัดการ scroll ของ body เมื่อมี modal ---------- */
   useEffect(() => {
     const hasModal = !!confirmRemove || !!selectedItem;
     if (typeof document !== "undefined") {
@@ -53,12 +71,13 @@ export default function WatchlistPage() {
     };
   }, [confirmRemove, selectedItem]);
 
-  /* auth */
+  /* ---------- auth: ติดตามสถานะการล็อกอิน ---------- */
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
         setUserId(user.uid);
       } else {
+        // ไม่ล็อกอิน: ล้างสถานะและหยุดโหลด
         setUserId(null);
         setItems([]);
         setLoading(false);
@@ -71,29 +90,33 @@ export default function WatchlistPage() {
     };
   }, []);
 
-  /* subscribe watchlist */
+  /* ---------- subscribe watchlist ของผู้ใช้แบบเรียลไทม์ ---------- */
   useEffect(() => {
     if (!userId) return;
 
     let mounted = true;
     setLoading(true);
 
+    // โครงสร้าง: users/{uid}/watchlist → doc แต่ละรายการมี { itemId, addedAt }
     const ref = collection(db, "users", userId, "watchlist");
+
     const unsubscribe = onSnapshot(
       ref,
       async (snapshot) => {
+        // ดึง item ทีละตัวตาม itemId แล้ว merge โปรไฟล์ของเจ้าของโพสต์
         const fetchPromises = snapshot.docs.map(async (docSnap) => {
           const watchDocId = docSnap.id;
           const { itemId, addedAt } = docSnap.data() || {};
           if (!itemId) return null;
 
           try {
+            // อ่านข้อมูลโพสต์จาก items/{itemId}
             const itemRef = doc(db, "items", itemId);
             const itemDoc = await getDoc(itemRef);
             if (!itemDoc.exists()) return null;
             const itemData = itemDoc.data();
 
-            // profile ของผู้โพสต์
+            // ดึงโปรไฟล์ของเจ้าของโพสต์จาก users/{ownerUid}
             let profileUsername = "ไม่ระบุชื่อ";
             let profilePic = "/images/profile-placeholder.jpg";
             try {
@@ -108,6 +131,7 @@ export default function WatchlistPage() {
               }
             } catch {}
 
+            // สรุปแถวที่จะใช้แสดงผลการ์ด
             return {
               id: itemId,
               watchDocId,
@@ -125,7 +149,7 @@ export default function WatchlistPage() {
         try {
           const results = await Promise.all(fetchPromises);
           if (!mounted) return;
-          setItems(results.filter(Boolean));
+          setItems(results.filter(Boolean)); // กรอง null ออก (กรณีรายการหาย/ลบ)
           setLoading(false);
         } catch (err) {
           console.error("error resolving watchlist items:", err);
@@ -136,6 +160,7 @@ export default function WatchlistPage() {
         }
       },
       (err) => {
+        // error ขณะ onSnapshot (เช่น permission)
         console.error("watchlist onSnapshot error:", err);
         if (mounted) {
           setItems([]);
@@ -150,7 +175,7 @@ export default function WatchlistPage() {
     };
   }, [userId]);
 
-  /* remove (optimistic) */
+  /* ---------- ลบออกจากรายการโปรด (Optimistic UI) ---------- */
   async function confirmAndRemove() {
     if (!confirmRemove || !userId) {
       setConfirmRemove(null);
@@ -158,29 +183,34 @@ export default function WatchlistPage() {
     }
     const { watchDocId } = confirmRemove;
 
+    // 1) อัปเดตหน้าจอก่อน (รู้สึกไว) → filter ออก
     setItems((prev) => prev.filter((it) => it.watchDocId !== watchDocId));
     setConfirmRemove(null);
 
+    // 2) ยิงลบจริงที่ Firestore
     try {
       await deleteDoc(doc(db, "users", userId, "watchlist", watchDocId));
     } catch (err) {
       console.error("failed to delete watchlist item", err);
       alert("ลบไม่สำเร็จ กรุณาลองใหม่");
+      // บังคับให้ re-subscribe/refresh ข้อมูลใหม่
       setLoading(true);
-      setUserId((id) => id); // retrigger
+      setUserId((id) => id); // ทริกเกอร์ useEffect ที่ผูกกับ userId
     }
   }
 
+  /* ---------- นำทางไปหน้ารายละเอียดโพสต์ ---------- */
   function goToItem(itemId) {
     if (!itemId) return;
-    // ให้ตรงกับที่ใช้อยู่ทั้งเว็บ
     router.push(`/item?id=${encodeURIComponent(itemId)}`);
   }
 
+  /* ---------- placeholder เมื่อรูปโหลดไม่สำเร็จ ---------- */
   function handleImageError(e) {
     e.currentTarget.src = "/img/default-placeholder.jpg";
   }
 
+  /* ---------- จัดการ modal รายละเอียด + แกลเลอรี ---------- */
   function openDetails(item, idx = 0) {
     setSelectedItem(item);
     setGalleryIndex(idx || 0);
@@ -198,12 +228,13 @@ export default function WatchlistPage() {
     setGalleryIndex((i) => (i + 1) % len);
   }
 
+  /* ---------- JSX: โครงหน้า + เงื่อนไขแสดงผล ---------- */
   return (
     <div className="min-h-screen bg-gradient-to-b from-rose-50/40 via-white to-white">
       <Header />
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Page header */}
+        {/* ส่วนหัวของหน้า: ชื่อหน้า + ปุ่มย้อนกลับ + ตัวนับจำนวนรายการ */}
         <section className="mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-start gap-4">
@@ -231,8 +262,9 @@ export default function WatchlistPage() {
           </div>
         </section>
 
-        {/* Content */}
+        {/* เนื้อหา: สลับ 4 สถานะ → loading / ไม่ล็อกอิน / ว่างเปล่า / มีข้อมูล */}
         {loading ? (
+          // 1) Loading: แสดง skeleton
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="animate-pulse bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
@@ -243,6 +275,7 @@ export default function WatchlistPage() {
             ))}
           </div>
         ) : !userId ? (
+          // 2) ยังไม่ได้ล็อกอิน
           <div className="rounded-xl bg-white p-8 shadow-md text-center border border-slate-100">
             <h2 className="text-xl font-semibold">ยังไม่ได้เข้าสู่ระบบ</h2>
             <p className="mt-2 text-slate-500">กรุณาเข้าสู่ระบบเพื่อดูรายการโปรดของคุณ</p>
@@ -262,6 +295,7 @@ export default function WatchlistPage() {
             </div>
           </div>
         ) : items.length === 0 ? (
+          // 3) ล็อกอินแล้วแต่ยังไม่มีรายการโปรด
           <div className="rounded-xl bg-white p-8 shadow-md text-center border border-slate-100">
             <img src="/img/empty-illustration.svg" alt="empty" className="w-48 mx-auto mb-4 opacity-70" />
             <h3 className="text-lg font-medium">ยังไม่มีรายการโปรด</h3>
@@ -278,6 +312,7 @@ export default function WatchlistPage() {
             </div>
           </div>
         ) : (
+          // 4) มีข้อมูล: แสดงการ์ดรายการโปรดทั้งหมด
           <AnimatePresence mode="popLayout">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {items.map((item) => (
@@ -290,7 +325,7 @@ export default function WatchlistPage() {
                   whileHover={{ y: -6, boxShadow: "0 12px 30px rgba(15,23,42,0.12)" }}
                   className="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm"
                 >
-                  {/* Header */}
+                  {/* ส่วนหัวการ์ด: รูปโปรไฟล์ + ชื่อผู้โพสต์ + เวลาเพิ่มลงรายการโปรด */}
                   <div className="flex items-center gap-3 p-3">
                     <img
                       src={item.profilePic}
@@ -309,7 +344,7 @@ export default function WatchlistPage() {
                     <div className="text-xs text-slate-400">{formatDate(item.addedAt)}</div>
                   </div>
 
-                  {/* Main image */}
+                  {/* รูปหลักของสินค้า + ปุ่มลบออกจากรายการโปรด */}
                   <div
                     className="relative h-44 bg-slate-100 cursor-pointer"
                     onClick={() => openDetails(item, 0)}
@@ -323,12 +358,14 @@ export default function WatchlistPage() {
                       className="w-full h-full object-cover"
                     />
 
+                    {/* ป้ายชื่อสินค้า (ซ้ายบน) */}
                     <div className="absolute left-3 top-3 inline-flex items-center gap-2 bg-white/90 backdrop-blur rounded-full px-3 py-1 shadow-sm border border-slate-100">
                       <span className="text-xs font-medium text-rose-600 truncate max-w-[10rem]">
                         {item.item_give || "ไม่ระบุ"}
                       </span>
                     </div>
 
+                    {/* ปุ่มลบออกจากรายการโปรด (ขวาบน) */}
                     <div className="absolute right-3 top-3 flex items-center gap-2">
                       <button
                         onClick={(e) => {
@@ -344,7 +381,7 @@ export default function WatchlistPage() {
                     </div>
                   </div>
 
-                  {/* Thumbs + info */}
+                  {/* แถบรูปย่อ + ข้อมูลโดยย่อ + ปุ่มดูรายละเอียด */}
                   <div className="px-3 py-3 border-t">
                     <div className="flex items-center gap-2 overflow-x-auto py-1">
                       {(item.item_images || []).slice(0, 6).map((img, idx) => (
@@ -397,7 +434,7 @@ export default function WatchlistPage() {
         )}
       </main>
 
-      {/* Confirm removal modal */}
+      {/* Modal: ยืนยันการลบจากรายการโปรด */}
       <AnimatePresence>
         {confirmRemove && (
           <motion.div
@@ -406,10 +443,12 @@ export default function WatchlistPage() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center"
           >
+            {/* พื้นหลังมืด: คลิกเพื่อปิด */}
             <div
               className="absolute inset-0 bg-black/40"
               onClick={() => setConfirmRemove(null)}
             />
+            {/* กล่องยืนยันการลบ */}
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -441,7 +480,7 @@ export default function WatchlistPage() {
         )}
       </AnimatePresence>
 
-      {/* Detail modal + gallery */}
+      {/* Modal: รายละเอียดโพสต์ + แกลเลอรีรูป */}
       <AnimatePresence>
         {selectedItem && (
           <motion.div
@@ -450,16 +489,19 @@ export default function WatchlistPage() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center"
           >
+            {/* พื้นหลังมืด: คลิกเพื่อปิด */}
             <div
               className="absolute inset-0 bg-black/50"
               onClick={() => setSelectedItem(null)}
             />
+            {/* เนื้อหา modal */}
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 20, opacity: 0 }}
               className="relative z-50 bg-white rounded-2xl shadow-2xl p-6 max-w-4xl w-full mx-4 overflow-hidden"
             >
+              {/* ส่วนหัว: โปรไฟล์เจ้าของโพสต์ + เวลาที่บันทึกเป็นรายการโปรด */}
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <img
@@ -483,9 +525,11 @@ export default function WatchlistPage() {
                 </button>
               </div>
 
+              {/* ตัวเนื้อหาหลัก: รูปใหญ่ + ทัมบ์ + ข้อมูลโพสต์ */}
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* ซ้าย: แกลเลอรีรูป */}
                 <div className="space-y-3">
-                  {/* large view */}
+                  {/* รูปใหญ่ */}
                   <div className="relative bg-slate-100 rounded-lg overflow-hidden h-80 flex items-center justify-center">
                     {selectedItem.item_images && selectedItem.item_images.length ? (
                       <>
@@ -495,6 +539,7 @@ export default function WatchlistPage() {
                           className="w-full h-full object-contain bg-white"
                           onError={handleImageError}
                         />
+                        {/* ปุ่มเลื่อนซ้าย/ขวา */}
                         <button
                           onClick={prevImage}
                           className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/85 hover:bg-white shadow"
@@ -515,7 +560,7 @@ export default function WatchlistPage() {
                     )}
                   </div>
 
-                  {/* thumbs */}
+                  {/* รูปย่อ */}
                   <div className="flex gap-2 overflow-x-auto pt-2">
                     {(selectedItem.item_images || []).map((img, idx) => (
                       <button
@@ -537,6 +582,7 @@ export default function WatchlistPage() {
                   </div>
                 </div>
 
+                {/* ขวา: รายละเอียดโพสต์ */}
                 <div>
                   <h2 className="text-2xl font-semibold">
                     {selectedItem.item_give || "ไม่ระบุ"}

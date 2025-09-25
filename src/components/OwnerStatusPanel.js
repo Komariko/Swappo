@@ -6,12 +6,14 @@ import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { CircleDot, MessageSquare, CheckCircle2, Loader2, Info } from 'lucide-react';
 
+/* ชื่อสถานะแบบอ่านง่าย (ไว้แสดงบนปุ่ม/ป้าย) */
 const LABEL = {
   available: 'ยังมีสินค้า',
   contacting: 'กำลังติดต่อ',
   completed: 'แลก/ขายแล้ว',
 };
 
+/* กำหนดสี/สไตล์/ไอคอนของแต่ละสถานะ ในที่เดียวเพื่อแก้ง่าย */
 const STYLES = {
   available: {
     ring: 'ring-emerald-300/70',
@@ -36,13 +38,22 @@ const STYLES = {
   },
 };
 
+/**
+ * OwnerStatusPanel
+ * กล่องสำหรับ “เจ้าของโพสต์” ใช้กดเปลี่ยนสถานะ item (ยังมี / กำลังติดต่อ / แลกแล้ว)
+ * - แสดงเป็น Stepper + ปุ่มสลับสถานะ
+ * - อัปเดต Firestore และเด้งสถานะขึ้นหน้าจอทันที (ผ่าน onChanged)
+ */
 export default function OwnerStatusPanel({ item, onChanged }) {
+  /* เก็บ uid ของผู้ใช้ปัจจุบัน + ธงว่าเช็คสถานะล็อกอินเสร็จแล้วหรือยัง */
   const [uid, setUid] = useState(null);
   const [authReady, setAuthReady] = useState(false);
+
+  /* แสดงสถานะระหว่างกดบันทึก + แจ้ง “บันทึกแล้ว” แป๊บหนึ่ง */
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // ✅ เรียก useMemo "เสมอ" เพื่อไม่ให้ลำดับ Hooks เปลี่ยน
+  /* 👍 สร้างรายการ “ขั้นสถานะ” ด้วย useMemo เพื่อไม่ให้สร้างใหม่ทุกครั้ง (ช่วยประหยัดเรนเดอร์) */
   const steps = useMemo(
     () => [
       { key: 'available',  label: LABEL.available,  ...STYLES.available  },
@@ -52,6 +63,7 @@ export default function OwnerStatusPanel({ item, onChanged }) {
     []
   );
 
+  /* ฟังสถานะการล็อกอินจาก Firebase Auth */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUid(u?.uid || null);
@@ -60,22 +72,32 @@ export default function OwnerStatusPanel({ item, onChanged }) {
     return () => unsub && unsub();
   }, []);
 
-  const current  = item?.status || 'available';
-  const isOwner  = authReady && !!uid && item?.user_id === uid;
+  /* สถานะปัจจุบันของโพสต์ (ถ้าไม่มี ให้ถือว่า “ยังมีสินค้า”) */
+  const current  = item?.status ?? 'available';
 
+  /* แสดงเฉพาะเจ้าของโพสต์เท่านั้น (ไม่ใช่เจ้าของ → ไม่แสดงอะไร) */
+  const isOwner  = authReady && !!uid && item?.user_id === uid;
   if (!isOwner) return null;
 
+  /* กดเปลี่ยนสถานะ → อัปเดตไปที่ Firestore แล้วเรียก onChanged เพื่อให้หน้าพ่อแม่อัปเดตตาม */
   async function setStatus(status) {
+    /* กันกดซ้ำตอนกำลังบันทึก หรือกดสถานะเดิมซ้ำ ๆ */
     if (busy || status === current) return;
+    /* กันพลาด: ต้องมี item.id ถึงจะอัปเดตได้ */
+    if (!item?.id) {
+      alert('ไม่พบรหัสรายการ (item.id)');
+      return;
+    }
+
     setBusy(true);
     setSaved(false);
     try {
       await updateDoc(doc(db, 'items', item.id), {
         status,
-        statusUpdatedAt: serverTimestamp(),
+        statusUpdatedAt: serverTimestamp(), // เก็บเวลาที่เปลี่ยนสถานะ
       });
-      onChanged?.(status);
-      setSaved(true);
+      onChanged?.(status);     // แจ้งพ่อแม่ของคอมโพเนนต์ เพื่อ setState ภายนอกต่อ
+      setSaved(true);          // โชว์ป้าย “บันทึกแล้ว”
       setTimeout(() => setSaved(false), 1200);
     } catch (e) {
       console.error(e);
@@ -87,6 +109,7 @@ export default function OwnerStatusPanel({ item, onChanged }) {
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      {/* หัวข้อ + คำอธิบายสั้น ๆ */}
       <div className="flex items-center justify-between">
         <div className="font-semibold text-slate-800">สถานะโพสต์ของคุณ</div>
         <div className="text-xs text-slate-500 flex items-center gap-1">
@@ -95,7 +118,7 @@ export default function OwnerStatusPanel({ item, onChanged }) {
         </div>
       </div>
 
-      {/* stepper */}
+      {/* แถบ Stepper แสดงตำแหน่งสถานะปัจจุบัน */}
       <div className="mt-3 relative">
         <div className="absolute left-2 right-2 top-1/2 -translate-y-1/2 h-1 bg-slate-100 rounded-full" />
         <div className="relative grid grid-cols-3">
@@ -118,7 +141,7 @@ export default function OwnerStatusPanel({ item, onChanged }) {
         </div>
       </div>
 
-      {/* segmented control */}
+      {/* ปุ่มสลับสถานะแบบ 3 ปุ่ม (Segemented Control) */}
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
         {steps.map((s) => {
           const active = current === s.key;
@@ -127,6 +150,7 @@ export default function OwnerStatusPanel({ item, onChanged }) {
               key={s.key}
               disabled={busy}
               onClick={() => setStatus(s.key)}
+              aria-pressed={active} /* a11y: บอกสถานะปุ่ม */
               className={[
                 'w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-sm transition',
                 active
@@ -143,6 +167,7 @@ export default function OwnerStatusPanel({ item, onChanged }) {
         })}
       </div>
 
+      {/* แถบด้านล่าง: เวลาอัปเดตล่าสุด + ป้าย “บันทึกแล้ว” */}
       <div className="mt-3 flex items-center justify-between text-[12px]">
         <div className="text-slate-500">
           อัปเดตล่าสุด:{' '}
