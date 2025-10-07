@@ -1,5 +1,5 @@
 export default function StatusChip({ status = "available" }) {
-  const LABEL = { available: "ยังมีสินค้า", contacting: "กำลังติดต่อ", completed: "แลก/ขายแล้ว" };
+  const LABEL = { available: "ยังมีสิ่งของ", contacting: "กำลังติดต่อ", completed: "แลก/ขายแล้ว" };
   const COLOR = {
     available: "bg-emerald-50 text-emerald-700 border-emerald-200",
     contacting: "bg-amber-50 text-amber-700 border-amber-200",

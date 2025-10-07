@@ -1,5 +1,8 @@
+// app/layout.jsx
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import PreloaderOverlay from "../components/PreloaderOverlay.js";
+
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -58,7 +61,14 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="th" className="h-full bg-white text-slate-900">
+      <head>
+        {/* ✅ พรีโหลดรูปสไปรต์ให้แสดงผลไวขึ้น */}
+        <link rel="preload" as="image" href="/sprites/blink.png" />
+        <link rel="preload" as="image" href="/sprites/walk.png" />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col`}>
+        {/* ✅ พรีโหลดเดอร์: เปลี่ยนเป็น variant="walk" ได้ */}
+        <PreloaderOverlay variant="blink" />
         <main className="flex-1">{children}</main>
       </body>
     </html>

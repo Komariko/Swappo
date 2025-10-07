@@ -1,3 +1,4 @@
+// src/app/profile/page.js
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -22,12 +23,13 @@ export default function ProfilePage() {
   const router = useRouter();
   const [userId, setUserId] = useState("");
   const [username, setUsername] = useState("");
+  const [phone, setPhone] = useState("");     // ✅ เพิ่ม
+  const [address, setAddress] = useState(""); // ✅ เพิ่ม
   const [profilePic, setProfilePic] = useState/** @type {File|null} */(null);
   const [previewUrl, setPreviewUrl] = useState("/images/profile-placeholder.jpg");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState({ type: "idle", msg: "" });
-
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -44,6 +46,8 @@ export default function ProfilePage() {
           const data = snap.data();
           if (data?.profilePic) setPreviewUrl(data.profilePic);
           if (!user.displayName && data?.username) setUsername(data.username);
+          setPhone(data?.phone || "");       // ✅ โหลดค่า
+          setAddress(data?.address || "");   // ✅ โหลดค่า
         }
       } catch (e) {
         console.error("Read profile error:", e);
@@ -81,6 +85,9 @@ export default function ProfilePage() {
     setPreviewUrl(URL.createObjectURL(file));
   }
 
+  // (ทางเลือก) sanitize เบอร์: เก็บเฉพาะตัวเลขและเครื่องหมายพื้นฐาน
+  const sanitizePhone = (v) => v.replace(/[^\d+\-\s()]/g, "").slice(0, 20);
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (!canSave) return;
@@ -92,7 +99,6 @@ export default function ProfilePage() {
       let downloadURL = previewUrl;
 
       if (profilePic) {
-        // ✔️ เก็บตาม rules: profile-pics/{uid}/...
         const safeName = profilePic.name.replace(/[^\w.\-]+/g, "_");
         const path = `profile-pics/${userId}/${Date.now()}_${safeName}`;
         const ref = sRef(storage, path);
@@ -101,20 +107,21 @@ export default function ProfilePage() {
         downloadURL = await getDownloadURL(snap.ref);
       }
 
-      // อัปเดต Firestore
+      // ✅ อัปเดต Firestore รวม phone / address
       await updateDoc(doc(db, "users", userId), {
         username: username.trim(),
         profilePic: downloadURL,
+        phone: sanitizePhone(phone.trim()),
+        address: address.trim(),
       });
 
-      // อัปเดต Auth profile
+      // อัปเดต Auth profile (ไม่มี field phone/address ใน Auth)
       await updateProfile(auth.currentUser, {
         displayName: username.trim(),
         photoURL: downloadURL,
       });
 
       setStatus({ type: "success", msg: "บันทึกโปรไฟล์เรียบร้อยแล้ว 🎉" });
-      // เด้งกลับหรือรีเฟรช (แล้วแต่ชอบ)
       setTimeout(() => router.replace("/"), 900);
     } catch (error) {
       console.error("Error updating profile:", error);
@@ -141,7 +148,7 @@ export default function ProfilePage() {
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-800 text-center">
           แก้ไขโปรไฟล์ของคุณ
         </h1>
-        <p className="text-center text-slate-500 mt-2">อัปเดตรูปและชื่อผู้ใช้ของคุณ</p>
+        <p className="text-center text-slate-500 mt-2">อัปเดตรูป ชื่อผู้ใช้ เบอร์โทร และที่อยู่</p>
 
         {/* สถานะ */}
         {status.type !== "idle" && (
@@ -160,7 +167,7 @@ export default function ProfilePage() {
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-6">
           {/* User ID (readonly) */}
-          <div>
+          {/* <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">User ID</label>
             <input
               type="text"
@@ -168,7 +175,7 @@ export default function ProfilePage() {
               disabled
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-slate-600"
             />
-          </div>
+          </div> */}
 
           {/* Username */}
           <div>
@@ -188,6 +195,35 @@ export default function ProfilePage() {
               />
             </div>
             <div className="mt-1 text-xs text-slate-400">{username.length}/40</div>
+          </div>
+
+          {/* Phone ✅ */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">เบอร์โทร</label>
+            <input
+              type="tel"
+              inputMode="tel"
+              pattern="^[0-9+\-\s()]{6,20}$"
+              title="กรอกเฉพาะตัวเลขและ + - ( ) เว้นวรรค, 6-20 ตัวอักษร"
+              value={phone}
+              onChange={(e) => setPhone(sanitizePhone(e.target.value))}
+              placeholder="เช่น 08x-xxx-xxxx หรือ +66 xx-xxx-xxxx"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:ring-2 focus:ring-rose-300"
+            />
+            <div className="mt-1 text-xs text-slate-400">ไม่บังคับ • ข้อมูลนี้จะแชร์เฉพาะคู่แลกที่คุณตกลงกัน</div>
+          </div>
+
+          {/* Address ✅ */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">ที่อยู่</label>
+            <textarea
+              rows={3}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="บ้านเลขที่ / หมู่บ้าน / ถนน / เขต / จังหวัด / รหัสไปรษณีย์"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:ring-2 focus:ring-rose-300"
+            />
+            <div className="mt-1 text-xs text-slate-400">ไม่บังคับ • อย่าใส่ข้อมูลที่ละเอียดเกินไปถ้ายังไม่พร้อมแชร์</div>
           </div>
 
           {/* Avatar uploader */}

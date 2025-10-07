@@ -28,3 +28,22 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ...ของเดิมไว้เหมือนเดิม... */
+
+/* ===== Embla (Mobile-first) ===== */
+.embla { --gap: 12px; }
+.embla__viewport { overflow: hidden; }
+.embla__container { display: flex; gap: var(--gap); }
+.embla__slide { flex: 0 0 86%; }           /* ~ 86vw บนจอเล็กสุด */
+@media (min-width: 360px) { .embla__slide { flex-basis: 72%; } }   /* xs */
+@media (min-width: 640px) { .embla__slide { flex-basis: 33.333%; } } /* sm */
+@media (min-width: 1024px){ .embla__slide { flex-basis: 20%; } }     /* lg */
+/* ซ่อนสกอลบาร์มือถือ */
+.embla__viewport::-webkit-scrollbar { display: none; }
+
+/* ปรับ spacing ให้กระชับขึ้นบนจอเล็ก */
+@media (max-width: 359.98px) {
+  .mobile-tight * { letter-spacing: 0; }
+  .mobile-tight .btn { padding: 8px 12px; font-size: 13px; }
+}

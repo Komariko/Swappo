@@ -1,0 +1,93 @@
+{
+  "meta": {
+    "source_image": "ChatGPT_Image_Sep_14_2025_09_48_41_PM.png",
+    "frame_size": {
+      "w": 1024,
+      "h": 1536
+    },
+    "created_with": "ChatGPT SpriteSheet Builder",
+    "note": "Frames laid out horizontally (3 columns)"
+  },
+  "images": [
+    {
+      "file": "blink_from_original_3f.png",
+      "frames": {
+        "blink_0_open": {
+          "x": 0,
+          "y": 0,
+          "w": 1024,
+          "h": 1536
+        },
+        "blink_1_half": {
+          "x": 1024,
+          "y": 0,
+          "w": 1024,
+          "h": 1536
+        },
+        "blink_2_closed": {
+          "x": 2048,
+          "y": 0,
+          "w": 1024,
+          "h": 1536
+        }
+      },
+      "animations": {
+        "blink": {
+          "frames": [
+            "blink_0_open",
+            "blink_1_half",
+            "blink_2_closed",
+            "blink_1_half",
+            "blink_0_open"
+          ],
+          "duration_ms": [
+            120,
+            60,
+            90,
+            60,
+            120
+          ]
+        }
+      }
+    },
+    {
+      "file": "walk_from_original_3f.png",
+      "frames": {
+        "walk_0_idle": {
+          "x": 0,
+          "y": 0,
+          "w": 1024,
+          "h": 1536
+        },
+        "walk_1_stepR": {
+          "x": 1024,
+          "y": 0,
+          "w": 1024,
+          "h": 1536
+        },
+        "walk_2_stepL": {
+          "x": 2048,
+          "y": 0,
+          "w": 1024,
+          "h": 1536
+        }
+      },
+      "animations": {
+        "walk_loop": {
+          "frames": [
+            "walk_0_idle",
+            "walk_1_stepR",
+            "walk_0_idle",
+            "walk_2_stepL"
+          ],
+          "duration_ms": [
+            120,
+            120,
+            120,
+            120
+          ]
+        }
+      }
+    }
+  ]
+}

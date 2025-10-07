@@ -7,7 +7,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { CircleDot, MessageSquare, CheckCircle2, Loader2, Info } from 'lucide-react';
 
 const LABEL = {
-  available: 'ยังมีสินค้า',
+  available: 'ยังมีสิ่งของ',
   contacting: 'กำลังติดต่อ',
   completed: 'แลก/ขายแล้ว',
 };
