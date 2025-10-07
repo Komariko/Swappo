@@ -6,7 +6,11 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { authStateHandler, logout, isAdmin } from "@/firebase/functions"; // ✅ import isAdmin
 import {
+<<<<<<< HEAD
   Bell, Menu, X, User, PlusSquare, Heart, MessageSquare, LogOut, Check, CircleX, ShieldCheck // ✅ icon แอดมิน
+=======
+  Bell, Menu, X, User, PlusSquare, Heart, MessageSquare, LogOut, Check, CircleX
+>>>>>>> 449fd2ae2738fec35f73127255340c4edc942979
 } from "lucide-react";
 
 /* Firestore */
@@ -51,10 +55,15 @@ export default function Header() {
     }
   }, []);
 
+<<<<<<< HEAD
   // auth + subscribe notifications + ตรวจแอดมิน
+=======
+  // auth + subscribe notifications
+>>>>>>> 449fd2ae2738fec35f73127255340c4edc942979
   useEffect(() => {
     const unsubAuth = authStateHandler(async (u) => {
       setUser(u);
+<<<<<<< HEAD
 
       // ✅ เช็กสิทธิ์แอดมินทุกครั้งที่ auth เปลี่ยน
       if (u) {
@@ -68,6 +77,8 @@ export default function Header() {
         setIsAdminUser(false);
       }
 
+=======
+>>>>>>> 449fd2ae2738fec35f73127255340c4edc942979
       if (notifUnsubRef.current) {
         try { notifUnsubRef.current(); } catch {}
         notifUnsubRef.current = null;
@@ -89,7 +100,6 @@ export default function Header() {
         setUnreadCount(0);
       }
     });
-
     return () => {
       if (notifUnsubRef.current) {
         try { notifUnsubRef.current(); } catch {}
@@ -99,6 +109,34 @@ export default function Header() {
     };
   }, []);
 
+<<<<<<< HEAD
+=======
+  // click outside & ESC
+  useEffect(() => {
+    function onDoc(e) {
+      const el = clickScopeRef.current;
+      if (!el) return;
+      if (!el.contains(e.target)) {
+        setProfileOpen(false);
+        setNotifOpen(false);
+      }
+    }
+    function onEsc(e) {
+      if (e.key === "Escape") {
+        setProfileOpen(false);
+        setNotifOpen(false);
+        setMobileOpen(false);
+      }
+    }
+    document.addEventListener("click", onDoc, true);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("click", onDoc, true);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, []);
+
+>>>>>>> 449fd2ae2738fec35f73127255340c4edc942979
   const handleLogout = async () => {
     try {
       await logout();

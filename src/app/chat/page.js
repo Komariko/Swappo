@@ -140,6 +140,7 @@ export default function ChatPage() {
               <h2 className="text-lg font-semibold text-slate-800">กล่องข้อความ</h2>
               <p className="text-xs text-slate-500">พูดคุยกับผู้ใช้ที่เคยสนใจแลกเปลี่ยน</p>
             </div>
+<<<<<<< HEAD
 
             {/* ปุ่มกลับหน้าหลัก */}
             <Link
@@ -151,6 +152,8 @@ export default function ChatPage() {
               <span className="hidden sm:inline">กลับหน้าหลัก</span>
               <span className="sm:hidden">กลับ</span>
             </Link>
+=======
+>>>>>>> 449fd2ae2738fec35f73127255340c4edc942979
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 pb-6 pt-1 space-y-2">

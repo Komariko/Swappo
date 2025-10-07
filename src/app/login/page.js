@@ -68,6 +68,7 @@ export default function LoginPage() {
   }
 
   return (
+<<<<<<< HEAD
     <div className="flex flex-col min-h-screen bg-slate-50">
       <Header />
       <main className="flex-grow flex items-center justify-center p-4">
@@ -81,6 +82,51 @@ export default function LoginPage() {
           <div className="p-8">
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
               ยินดีต้อน
+=======
+    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-sky-50 flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* แบรนด์/ภาพ */}
+        <div className="order-1 lg:order-2 bg-white/70 backdrop-blur rounded-3xl border border-slate-100 shadow-xl p-8 flex flex-col items-center justify-center">
+          <div className="inline-flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-100">
+              <LogIn className="h-6 w-6 text-rose-600" />
+            </span>
+            <h2 className="text-2xl font-bold text-slate-800">
+              เข้าสู่ระบบ <span className="text-rose-600">Swappo</span>
+            </h2>
+          </div>
+
+          <p className="mt-3 text-slate-500 text-center">
+           แลกเปลี่ยนสิ่งของกับเพื่อน ๆ ได้ในไม่กี่คลิก
+          </p>
+
+          {/* โลโก้ใหม่ */}
+          <div className="mt-6">
+            <img
+              src="/images/swappo-logo.svg"
+              alt="Swappo Logo"
+              className="w-64 max-w-full drop-shadow block dark:hidden"
+            />
+            <img
+              src="/images/swappo-logo-dark.svg"
+              alt="Swappo Logo Dark"
+              className="w-64 max-w-full drop-shadow hidden dark:block"
+            />
+          </div>
+
+          <ul className="mt-8 w-full text-slate-600 space-y-2 text-sm">
+            <li className="flex gap-2"><span className="text-emerald-600">•</span> ใช้อีเมลที่ลงทะเบียนไว้</li>
+            <li className="flex gap-2"><span className="text-emerald-600">•</span> ลืมรหัส? รีเซ็ตได้ที่ Forgot Password</li>
+            {/* <li className="flex gap-2"><span className="text-emerald-600">•</span> มีปัญหาโดเมน/เน็ต ให้ลองเคลียร์แคช</li> */}
+          </ul>
+        </div>
+
+        {/* ฟอร์ม */}
+        <div className="order-2 lg:order-1">
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-xl p-6 sm:p-8">
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-800">
+              ยินดีต้อนรับ
+>>>>>>> 449fd2ae2738fec35f73127255340c4edc942979
             </h1>
             <p className="mt-1 text-slate-500">
               กรอกอีเมลและรหัสผ่านเพื่อเข้าสู่ระบบ
@@ -88,11 +134,18 @@ export default function LoginPage() {
 
             {status.type !== "idle" && (
               <div
+<<<<<<< HEAD
                 className={`mt-6 rounded-lg border px-4 py-3 text-sm ${
                   status.type === "error"
                     ? "border-rose-200 bg-rose-50 text-rose-800"
                     : "border-emerald-200 bg-emerald-50 text-emerald-800"
                 }`}
+=======
+                className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${status.type === "error"
+                    ? "border-rose-200 bg-rose-50 text-rose-700"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  }`}
+>>>>>>> 449fd2ae2738fec35f73127255340c4edc942979
               >
                 {status.msg}
               </div>
@@ -149,6 +202,18 @@ export default function LoginPage() {
                     )}
                   </button>
                 </div>
+<<<<<<< HEAD
+=======
+
+                <div className="mt-2 text-right text-sm">
+                  <p className="mt-3 text-right text-sm">
+                    <Link href="/forgot-password" className="text-rose-600 hover:text-rose-700 underline underline-offset-4">
+                      ลืมรหัสผ่าน?
+                    </Link>
+                  </p>
+
+                </div>
+>>>>>>> 449fd2ae2738fec35f73127255340c4edc942979
               </div>
 
               <div className="pt-2">
